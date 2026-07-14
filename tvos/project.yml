@@ -1,0 +1,38 @@
+name: HeliosTV
+options:
+  bundleIdPrefix: com.helios
+  deploymentTarget:
+    tvOS: "18.0"
+  createIntermediateGroups: true
+
+targets:
+  HeliosTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: HeliosTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.helios.HeliosTV
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        TARGETED_DEVICE_FAMILY: "3"
+
+  # A pure logic bundle: no TEST_HOST, no app launch. The orbital maths has no UI in it, so
+  # making these tests boot a SceneKit app just to check a Kepler solver is ceremony that buys
+  # nothing and breaks resource lookup. Compiles the two Three.js-free sources directly.
+  HeliosTVTests:
+    type: bundle.unit-test
+    platform: tvOS
+    sources:
+      - path: HeliosTVTests
+      - path: HeliosTV/Orbits.swift
+      - path: HeliosTV/Body.swift
+      - path: HeliosTV/Resources/bodies.json
+        buildPhase: resources
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"

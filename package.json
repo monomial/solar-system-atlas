@@ -8,10 +8,11 @@
   },
   "type": "module",
   "scripts": {
+    "build": "npm run catalog && next build",
+    "catalog": "node --experimental-strip-types scripts/emit-catalog.mjs && node --experimental-strip-types scripts/emit-orbit-goldens.mjs",
     "dev": "next dev",
-    "build": "next build",
-    "preview": "npx --yes serve out",
     "lint": "eslint .",
+    "preview": "npx --yes serve out",
     "test": "npm run build && node --test --experimental-strip-types \"tests/*.test.mjs\""
   },
   "dependencies": {
