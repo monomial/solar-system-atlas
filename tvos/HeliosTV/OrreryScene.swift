@@ -36,8 +36,19 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     private var worstFrame: TimeInterval = 0
     private var lastFrameAt: TimeInterval = 0
 
-    /// Names the ambient loop lingers on, in the order it visits them.
-    private let tour = ["Sun", "Earth", "Saturn", "Jupiter", "Mars", "Neptune", "Venus", "Uranus", "Mercury", "Pluto"]
+    /// The loop travels *outward*, Sun to Eris. An arbitrary greatest-hits order is fine for an
+    /// adult browsing; for a child watching the same loop night after night, the journey itself is
+    /// part of what is being taught — things get colder, darker and slower the farther out you go.
+    private let tour = ["Sun", "Mercury", "Venus", "Earth", "Mars", "Ceres", "Jupiter", "Saturn",
+                        "Uranus", "Neptune", "Pluto", "Haumea", "Makemake", "Eris"]
+
+    private let narrator = Narrator()
+    /// How many lines each body has already spoken, so it works through them instead of repeating.
+    private var spokenCount: [String: Int] = [:]
+    /// Silence after a line finishes, before the camera moves on. Long enough for it to land.
+    private static let pauseAfterNarration: TimeInterval = 4.5
+    /// Ceiling in case narration never reports finishing — the loop must never wedge.
+    private static let maxDwell: TimeInterval = 70
 
     /// Published for the SwiftUI title card. Read on the main actor from the render callback.
     @Published private(set) var caption: Caption?
@@ -445,6 +456,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     // MARK: - Input
 
     func beginScrub() {
+        narrator.stop()
         isScrubbing = true
         scrubVelocity = 0
         ambientPaused = true
@@ -470,11 +482,11 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     /// Discrete input for a discrete target: step the camera to the next or previous world.
     func step(by delta: Int) {
         guard !featured.isEmpty else { return }
+        narrator.stop()
         ambientPaused = true
         lastInteractionAt = lastFrameAt
         featuredIndex = ((featuredIndex + delta) % featured.count + featured.count) % featured.count
         flyToCurrent(at: displayDate)
-        nextChangeAt = lastFrameAt + dwell
     }
 
     /// Select toggles the ambient drift, so you can hold on a world and just look at it.
@@ -514,10 +526,40 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         cameraNode.simdPosition = SIMD3<Float>(vantage)
         SCNTransaction.commit()
 
-        caption = makeCaption(for: body, at: date)
+        narrate(body, at: date)
     }
 
-    private func makeCaption(for body: Body, at date: Date) -> Caption {
+    /// Speaks the next unheard line for this body, and holds the camera until it has finished.
+    ///
+    /// The dwell is *driven by the narration*, not a fixed number of seconds. A fixed dwell either
+    /// cuts the voice off mid-sentence or leaves dead air after a short line; letting the words set
+    /// the pace means the loop breathes at the speed of what it is saying.
+    private func narrate(_ body: Body, at date: Date) {
+        let lines = catalog.narration[body.name] ?? []
+        guard !lines.isEmpty else {
+            caption = makeCaption(for: body, at: date, line: body.fact)
+            nextChangeAt = lastFrameAt + dwell
+            return
+        }
+
+        let turn = spokenCount[body.name, default: 0]
+        spokenCount[body.name] = turn + 1
+        let line = lines[turn % lines.count]
+
+        caption = makeCaption(for: body, at: date, line: line)
+
+        // Blocked on the voice, with a ceiling so a lost completion callback cannot wedge the loop.
+        nextChangeAt = lastFrameAt + Self.maxDwell
+        let clipID = "narration-\(body.name.lowercased())-\(turn % lines.count)"
+        narrator.speak(line, clipID: clipID) { [weak self] in
+            guard let self else { return }
+            self.nextChangeAt = self.lastFrameAt + Self.pauseAfterNarration
+        }
+    }
+
+    /// The card shows the words that are being spoken, so a reading adult can follow along with a
+    /// child who cannot. Same sentence, two ways in.
+    private func makeCaption(for body: Body, at date: Date, line: String? = nil) -> Caption {
         let au = Orbits.heliocentricDistanceAU(body, at: date)
         let when = isLive ? "right now" : "on \(Self.captionDate.string(from: date))"
         return Caption(
@@ -526,7 +568,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
             distance: body.name == "Sun"
                 ? "The centre of everything"
                 : String(format: au < 2 ? "%.3f AU from the Sun, %@" : "%.2f AU from the Sun, %@", au, when),
-            fact: body.fact
+            fact: line ?? caption?.fact ?? body.fact
         )
     }
 

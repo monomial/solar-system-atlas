@@ -91,3 +91,120 @@ export const MOONS:Planet[]=[
 
 export const ALL_BODIES=[...PLANETS,...DWARFS,...MOONS,...SMALL_BODIES];
 export const ORBITING_BODIES=[...PLANETS.slice(1),...DWARFS,...SMALL_BODIES];
+
+// Narration for the TV app: what a four-year-old hears, not what an adult reads.
+//
+// Rules these were written to, because they are easy to lose on the next edit:
+//
+// - Written for the EAR. No symbols, no abbreviations, no digits that a speech synthesiser will
+//   mangle ("a hundred and sixty-five years", not "165 years"). Read them out loud to check.
+// - Compared to things a four-year-old has actually touched: a bathtub, a bicycle left in the
+//   rain, a potato, a sheet of paper. Never to things they have not, like a football stadium.
+// - Warm and wondering, never shouty. This plays on a loop in a living room. It has to survive
+//   the hundredth hearing, and anything cute enough to grab you the first time will grate by then.
+// - Still TRUE. Simplifying is not the same as fibbing, and a child who later learns you fudged
+//   it learns the wrong lesson about science. Where a real number is startling, use the real
+//   number. Where the honest answer is "we changed our minds", say that (see Pluto).
+// - Short. One idea per line. The line has to land while the camera is drifting.
+export const NARRATION: Partial<Record<BodyName, string[]>> = {
+  Sun: [
+    "This is the Sun. It is a star, and it is the biggest thing here. Everything else goes around and around it.",
+    "The Sun is so big that a million Earths could fit inside it.",
+    "Sunlight takes eight minutes to reach us. So the sunshine on your face left the Sun eight minutes ago.",
+    "The Sun is very far away. If you could drive a car there, it would take about two hundred years.",
+    "The Sun is not burning like a campfire. It is hot because deep in the middle, it squeezes itself very, very hard.",
+    "Never look straight at the Sun. Even from all the way over here, it is much too bright.",
+  ],
+  Mercury: [
+    "This is Mercury. It is the closest planet to the Sun, and it hurries around faster than any of the others.",
+    "Mercury is small. It is not much bigger than our Moon.",
+    "Mercury has no air at all. No wind. No clouds. No sound.",
+    "In the daytime, Mercury is hot enough to melt metal. At night, it gets colder than anywhere on Earth.",
+    "Mercury is covered in round dents, where rocks crashed into it a very long time ago.",
+  ],
+  Venus: [
+    "This is Venus. It is almost exactly the same size as Earth. Some people call it Earth's twin.",
+    "But Venus is not like home at all. It is the hottest planet, even hotter than Mercury.",
+    "Venus is wrapped in thick yellow clouds. You cannot see the ground through them, not even a little.",
+    "Venus spins the wrong way round. If you stood there, the Sun would come up in the west.",
+    "Venus turns so slowly that one day there lasts longer than one whole year there.",
+  ],
+  Earth: [
+    "This is Earth. This is home. You are standing on it right now.",
+    "Earth is the only place we know of with oceans you can swim in.",
+    "Earth is the only place we know of where anything is alive. Every animal, every tree, every person. All of them are here.",
+    "From far away, Earth looks like one small blue dot. Everything you have ever seen is on it.",
+    "The air around Earth is like a thin blanket. It keeps us warm, and it lets us breathe.",
+    "Earth has one Moon. It is drifting away from us, a tiny bit every year. About as much as your fingernails grow.",
+  ],
+  Mars: [
+    "This is Mars. It is red because the ground is full of rust, like an old bicycle left out in the rain.",
+    "Mars is cold. Much colder than the coldest place on Earth.",
+    "Mars has the biggest volcano anywhere. It is so wide that if you stood on top, you could not see the edges.",
+    "A long time ago, Mars had rivers and lakes. We can still see the places where the water ran.",
+    "Mars has two little moons. They are lumpy, a bit like potatoes.",
+    "There are robots driving around on Mars right now, looking at rocks.",
+  ],
+  Jupiter: [
+    "This is Jupiter. It is the biggest planet. All the other planets together could fit inside it.",
+    "Jupiter has no ground. If you tried to land, there would be nothing to stand on. Just cloud, going down and down.",
+    "The big red spot is a storm. It is wider than the whole Earth, and it has been blowing for hundreds of years.",
+    "Jupiter has more than ninety moons. It is a bit like a little solar system of its own.",
+    "One of Jupiter's moons has an ocean hidden under its ice, with more water in it than all the seas on Earth.",
+    "Jupiter spins very fast. A whole day there is only ten hours long.",
+  ],
+  Saturn: [
+    "This is Saturn. Look at the rings.",
+    "The rings are not solid. They are millions and millions of pieces of ice, all going round and round.",
+    "Some of the pieces are as small as a grain of sugar. Some are as big as a house.",
+    "Saturn is so light for its size that if you had a bathtub big enough, Saturn would float in it.",
+    "The rings are enormously wide, but they are very, very thin. Like a sheet of paper spread out over a whole town.",
+    "Saturn's biggest moon has rivers and lakes. But they are not water. They are cold and runny, more like the fuel in a car.",
+  ],
+  Uranus: [
+    "This is Uranus. It is a pale blue-green, and it is very, very cold.",
+    "Uranus lies on its side. It rolls around the Sun instead of spinning like a top.",
+    "Because it is tipped right over, each end gets forty-two years of daylight, and then forty-two years of night.",
+    "Uranus has rings too. But they are thin and dark, and very hard to see.",
+    "Out here the Sun is small and pale. It is not warm at all.",
+  ],
+  Neptune: [
+    "This is Neptune. It is the farthest planet from the Sun, and it is a deep, deep blue.",
+    "Neptune has the fastest winds anywhere. Faster than any storm that has ever blown on Earth.",
+    "Neptune takes a hundred and sixty-five years to go around the Sun just once.",
+    "We found Neptune less than two hundred years ago. It has not even finished two trips around the Sun since then.",
+    "Neptune has a moon called Triton that goes around it backwards.",
+  ],
+  Pluto: [
+    "This is Pluto. It is small, and icy, and very far away.",
+    "Pluto used to be called a planet. Now we call it a dwarf planet. Pluto did not change. We just learned more.",
+    "Pluto has a huge frozen heart on its side, made of ice.",
+    "It is so cold on Pluto that the air itself falls out of the sky as snow.",
+    "A spaceship flew all the way out to Pluto and took the first close-up pictures. The journey took nine years.",
+    "Pluto has a moon called Charon that is half as big as Pluto is. They swing around each other, like dancing.",
+  ],
+  Ceres: [
+    "This is Ceres. It lives in the asteroid belt, in among all the rocks.",
+    "Ceres is the biggest thing in the asteroid belt. But it is still small.",
+    "There is ice on Ceres, hiding under the ground. Perhaps a great deal of it.",
+    "There are bright white spots on Ceres. They are salt, left behind when water came up and dried away.",
+  ],
+  Haumea: [
+    "This is Haumea. It spins so fast that it is not round any more. It has been squashed into an egg shape.",
+    "A whole day on Haumea lasts only four hours.",
+    "Haumea has two little moons, and a thin ring around its middle.",
+    "Haumea is far past Neptune, out where everything is dark and very cold.",
+  ],
+  Makemake: [
+    "This is Makemake. It is out past Neptune, in a place called the Kuiper belt.",
+    "Makemake is reddish, and covered all over in frost.",
+    "It takes Makemake three hundred years to go around the Sun a single time.",
+    "Makemake has one small moon, and it is very dark.",
+  ],
+  Eris: [
+    "This is Eris. It is one of the farthest things we know of.",
+    "Eris is about the same size as Pluto. Finding it is what made us stop and think about what a planet really is.",
+    "Eris travels very far away, and then comes slowly back again. Its path is long and stretched out.",
+    "Out where Eris is, the Sun is just another star in the sky.",
+  ],
+};

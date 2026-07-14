@@ -10,7 +10,7 @@
 import { copyFile, mkdir, readdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { DWARFS, MOONS, PLANETS, SMALL_BODIES } from "../app/bodies.ts";
+import { DWARFS, MOONS, NARRATION, PLANETS, SMALL_BODIES } from "../app/bodies.ts";
 
 const out = fileURLToPath(new URL("../tvos/HeliosTV/Resources/bodies.json", import.meta.url));
 
@@ -23,6 +23,7 @@ const catalog = {
   dwarfs: DWARFS,
   moons: MOONS,
   smallBodies: SMALL_BODIES,
+  narration: NARRATION,
 };
 
 await mkdir(new URL("../tvos/HeliosTV/Resources/", import.meta.url), { recursive: true });
@@ -37,4 +38,5 @@ for (const file of textures)
   await copyFile(new URL(file, textureDir), new URL(file, resourceDir));
 
 const count = PLANETS.length + DWARFS.length + MOONS.length + SMALL_BODIES.length;
-console.log(`catalog → tvos/HeliosTV/Resources/bodies.json (${count} bodies, ${textures.length} textures)`);
+const lines = Object.values(NARRATION).flat().length;
+console.log(`catalog → tvos/HeliosTV/Resources/bodies.json (${count} bodies, ${lines} narration lines, ${textures.length} textures)`);

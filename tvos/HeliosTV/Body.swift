@@ -40,6 +40,8 @@ struct Catalog: Decodable {
     let dwarfs: [Body]
     let moons: [Body]
     let smallBodies: [Body]
+    /// Kid-facing lines, several per body, spoken aloud. Written for the ear — see app/bodies.ts.
+    let narration: [String: [String]]
 
     /// The Sun is `planets[0]` and carries no elements — it sits at the origin.
     var sun: Body { planets[0] }
