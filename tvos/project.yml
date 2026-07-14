@@ -11,6 +11,13 @@ targets:
     platform: tvOS
     sources:
       - path: HeliosTV
+        excludes: ["Media"]
+      # A folder reference, not an enumerated list: generated assets (textures, voice clips) land here
+      # and must ship without anyone remembering to re-run xcodegen. NOT named "Resources" — a folder
+      # by that name at the root of a tvOS .app collides with codesign's bundle layout and the sign
+      # step fails with "code object is not signed at all".
+      - path: HeliosTV/Media
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.helios.HeliosTV
@@ -35,7 +42,7 @@ targets:
       - path: HeliosTVTests
       - path: HeliosTV/Orbits.swift
       - path: HeliosTV/Body.swift
-      - path: HeliosTV/Resources/bodies.json
+      - path: HeliosTV/Media/bodies.json
         buildPhase: resources
     settings:
       base:

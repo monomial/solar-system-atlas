@@ -99,6 +99,45 @@ Log noise you can ignore on tvOS: `failed to load 'RawCamera' bundle`, `fopen fa
 file`, and `SCNView implements focusItemsInRect:`. All three are standard platform chatter, not
 faults in this app. `signal 15` on exit is SIGTERM — the session was stopped, not a crash.
 
+## The voice
+
+The narration is rendered ahead of time by **Kokoro**, a small open-weights neural TTS model that
+runs locally (`scripts/kokoro_render.py`). Not a cloud service — no account, no billing, nothing
+leaves the machine, and no per-line cost, which matters more than it sounds: the whole point of
+this thing is that the script keeps getting better, and a per-character bill makes you flinch at
+every rewrite.
+
+```sh
+brew install espeak-ng
+uv venv --python 3.12 .venv-kokoro
+VIRTUAL_ENV=.venv-kokoro uv pip install kokoro soundfile \
+  "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+
+npm run narration -- --sample        # hear the candidate voices
+TTS_VOICE=bm_george npm run narration # render everything new or changed
+```
+
+Clips are cached by content hash of (text + voice + model + speed) in `.narration-cache/`, so
+editing one line re-renders one line. `npm run catalog` restores them from that cache rather than
+dropping them. OpenAI and ElevenLabs remain wired up behind `TTS_PROVIDER` if you ever want them
+(ElevenLabs' free tier cannot call the API; OpenAI needs billing enabled).
+
+`Narrator` prefers a rendered clip and falls back to on-device synthesis, so an unrendered line
+still speaks — badly, but it speaks.
+
+## Two bundling traps, both of which bite silently
+
+**The media folder must not be called `Resources`.** A directory by that name at the root of a
+tvOS `.app` collides with codesign's bundle layout, and the sign step fails with the wonderfully
+unhelpful "code object is not signed at all ... In subcomponent: embedded.mobileprovision". It is
+called `Media` for that reason alone.
+
+**It is a folder *reference*, not an enumerated file list.** xcodegen bakes explicit file lists at
+generate time, so the first full narration render shipped **zero of its 73 clips** — the project
+had been generated before they existed. The app ran perfectly, sounded like a robot, and gave no
+indication anything was wrong. `OrreryScene.auditNarrationClips()` now counts the clips at launch
+and says so, because a silent downgrade to the robot voice is indistinguishable from success.
+
 ## Known gaps
 - No screensaver integration yet. tvOS does not let third-party apps supply system screensavers,
   so "leave it running" is the current story. A Top Shelf extension is the closest native hook.

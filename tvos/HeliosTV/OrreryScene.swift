@@ -139,6 +139,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     // MARK: - Build
 
     func makeScene() -> SCNScene {
+        auditNarrationClips()
         scene.background.contents = UIColor(red: 0.008, green: 0.012, blue: 0.039, alpha: 1)
 
         addStarfield()
@@ -388,6 +389,28 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         scene.rootNode.addChildNode(node)
     }
 
+    /// A missing clip does not crash — it quietly downgrades to the robot voice, which looks and
+    /// behaves like a perfectly healthy app. That is exactly how the first render shipped zero of
+    /// its 73 clips without anyone noticing. So count them, out loud.
+    private func auditNarrationClips() {
+        var found = 0, expected = 0
+        for (name, lines) in catalog.narration {
+            for index in lines.indices {
+                expected += 1
+                let id = "narration-\(name.lowercased())-\(index)"
+                let url = Bundle.main.url(forResource: id, withExtension: "m4a", subdirectory: "Media")
+                    ?? Bundle.main.url(forResource: id, withExtension: "m4a")
+                if url != nil { found += 1 }
+            }
+        }
+        if found == expected {
+            print("[narration] \(found)/\(expected) clips bundled")
+        } else {
+            print("⚠️  [narration] only \(found)/\(expected) clips bundled — the rest fall back to the "
+                  + "on-device robot voice. Run: TTS_VOICE=bm_george npm run narration")
+        }
+    }
+
     // MARK: - Textures
     //
     // A missing texture in the web build failed *silently* — the planet just rendered as a flat
@@ -399,7 +422,8 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     }
 
     private func image(named name: String, ext: String) -> UIImage? {
-        guard let url = Bundle.main.url(forResource: name, withExtension: ext) else { return nil }
+        guard let url = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "Media")
+                        ?? Bundle.main.url(forResource: name, withExtension: ext) else { return nil }
         guard let image = UIImage(contentsOfFile: url.path) else {
             print("⚠️  \(name).\(ext) is in the bundle but failed to decode — is WebP supported here?")
             return nil

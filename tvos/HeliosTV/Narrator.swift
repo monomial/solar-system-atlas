@@ -38,8 +38,9 @@ final class Narrator: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelega
         stop()
         onFinish = completion
 
-        if let url = Bundle.main.url(forResource: clipID, withExtension: "m4a"),
-           let clip = try? AVAudioPlayer(contentsOf: url) {
+        let clipURL = Bundle.main.url(forResource: clipID, withExtension: "m4a", subdirectory: "Media")
+            ?? Bundle.main.url(forResource: clipID, withExtension: "m4a")
+        if let clipURL, let clip = try? AVAudioPlayer(contentsOf: clipURL) {
             usedRecordedClip = true
             clip.delegate = self
             player = clip

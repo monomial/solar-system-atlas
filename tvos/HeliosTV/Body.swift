@@ -49,7 +49,8 @@ struct Catalog: Decodable {
     var orbiting: [Body] { Array(planets.dropFirst()) + dwarfs }
 
     static func load(from bundle: Bundle = .main) -> Catalog {
-        guard let url = bundle.url(forResource: "bodies", withExtension: "json"),
+        guard let url = bundle.url(forResource: "bodies", withExtension: "json", subdirectory: "Media")
+                        ?? bundle.url(forResource: "bodies", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let catalog = try? JSONDecoder().decode(Catalog.self, from: data)
         else {
