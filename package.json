@@ -12,6 +12,7 @@
     "catalog": "node --experimental-strip-types scripts/emit-catalog.mjs && node --experimental-strip-types scripts/emit-orbit-goldens.mjs",
     "dev": "next dev",
     "lint": "eslint .",
+    "narration": "node --experimental-strip-types scripts/render-narration.mjs",
     "preview": "npx --yes serve out",
     "test": "npm run build && node --test --experimental-strip-types \"tests/*.test.mjs\""
   },

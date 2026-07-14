@@ -46,3 +46,7 @@ tvos/*.xcodeproj
 # generated from app/bodies.ts + public/textures by `npm run catalog`
 tvos/HeliosTV/Resources/
 tvos/HeliosTVTests/Resources/
+
+# rendered narration audio (real money — see scripts/render-narration.mjs)
+.narration-cache/
+.narration-samples/

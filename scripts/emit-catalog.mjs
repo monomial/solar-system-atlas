@@ -37,6 +37,15 @@ const textures = (await readdir(textureDir)).filter((file) => /\.(webp|png)$/.te
 for (const file of textures)
   await copyFile(new URL(file, textureDir), new URL(file, resourceDir));
 
+// Restore any rendered narration from the cache. The clips are real money, so a catalog rebuild
+// must never silently drop them and force a re-render — see scripts/render-narration.mjs.
+const cacheDir = new URL("../.narration-cache/", import.meta.url);
+let clips = [];
+try {
+  clips = (await readdir(cacheDir)).filter((file) => file.endsWith(".m4a"));
+  for (const file of clips) await copyFile(new URL(file, cacheDir), new URL(file, resourceDir));
+} catch { /* nothing rendered yet — Narrator falls back to on-device synthesis */ }
+
 const count = PLANETS.length + DWARFS.length + MOONS.length + SMALL_BODIES.length;
 const lines = Object.values(NARRATION).flat().length;
-console.log(`catalog → tvos/HeliosTV/Resources/bodies.json (${count} bodies, ${lines} narration lines, ${textures.length} textures)`);
+console.log(`catalog → tvos/HeliosTV/Resources/bodies.json (${count} bodies, ${lines} narration lines, ${textures.length} textures, ${clips.length} voice clips)`);
