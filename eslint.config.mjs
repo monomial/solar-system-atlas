@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The local Kokoro TTS environment. Not ours, and torch ships a stray .js file inside it that
+    // ESLint will happily crawl into and report on. See tvos/README.md.
+    ".venv-kokoro/**",
   ]),
 ]);
 
