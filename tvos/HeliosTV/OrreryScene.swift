@@ -21,15 +21,28 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     private let focusTarget = SCNNode()
 
     private var bodyNodes: [String: SCNNode] = [:]
+    private var orbitNodes: [String: SCNNode] = [:]
+    /// The date the orbit ellipses were last built for. The elements precess, so scrubbing far
+    /// enough has to redraw them — but nowhere near every frame.
+    private var orbitsBuiltFor = Date()
     private var featured: [Body] = []
     private var featuredIndex = -1
     private var nextChangeAt: TimeInterval = 0
+
+    // Frame-time sampling. "Seems smooth" is not a number, and we are about to add per-frame
+    // input work on top of this — worth knowing the headroom on the oldest hardware we target.
+    private var frameCount = 0
+    private var windowStart: TimeInterval = 0
+    private var worstFrame: TimeInterval = 0
+    private var lastFrameAt: TimeInterval = 0
 
     /// Names the ambient loop lingers on, in the order it visits them.
     private let tour = ["Sun", "Earth", "Saturn", "Jupiter", "Mars", "Neptune", "Venus", "Uranus", "Mercury", "Pluto"]
 
     /// Published for the SwiftUI title card. Read on the main actor from the render callback.
     @Published private(set) var caption: Caption?
+    /// The date the scene is currently drawing, and whether that is the live present moment.
+    @Published private(set) var clock = Clock(date: Date(), isLive: true)
 
     struct Caption: Equatable {
         let name: String
@@ -38,9 +51,49 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         let fact: String
     }
 
+    struct Clock: Equatable {
+        let date: Date
+        let isLive: Bool
+    }
+
     /// Seconds each world holds the frame before the camera drifts to the next.
     private let dwell: TimeInterval = 11
     private let flightDuration: TimeInterval = 5.5
+
+    // MARK: - Time
+    //
+    // The one continuous input a Siri Remote is genuinely good at is a single-axis thumb drag.
+    // On a desktop you spend that on the camera (orbit and zoom). Here the mapping is inverted:
+    // the trackpad drives *time*, and the camera is moved by discrete directional clicks. That
+    // is the whole interaction bet — continuous input for the continuous variable, discrete
+    // input for discrete targets. Free-flying a camera with a glass trackpad is miserable;
+    // winding the planets around the Sun with your thumb is not.
+
+    /// Offset from the real present. Zero means "right now", which is the resting state.
+    private var timeOffset: TimeInterval = 0
+    /// Days per second, carried after the thumb lifts so a flick coasts.
+    private var scrubVelocity: Double = 0
+    private var isScrubbing = false
+    private var lastInteractionAt: TimeInterval = 0
+    private var ambientPaused = false
+
+    /// The same bound the web atlas enforces, for the same reason: the JPL elements are only
+    /// meaningful across this window, so the UI must not let you leave it.
+    private static let minDate = ISO8601DateFormatter().date(from: "1800-01-01T12:00:00Z")!
+    private static let maxDate = ISO8601DateFormatter().date(from: "2050-12-31T12:00:00Z")!
+
+    /// A full sweep of the trackpad covers about a year. Slow enough to land on a month, fast
+    /// enough that a flick sends the outer planets visibly wheeling.
+    private static let daysPerPoint = 0.55
+    /// Seconds of stillness before the scene glides home to the present and resumes drifting.
+    private static let idleBeforeReturn: TimeInterval = 20
+
+    var displayDate: Date {
+        let target = Date().addingTimeInterval(timeOffset)
+        return min(max(target, Self.minDate), Self.maxDate)
+    }
+
+    private var isLive: Bool { abs(timeOffset) < 60 }
 
     // Same compression the web atlas uses: real angles, readable distances.
     private func displayRadius(_ au: Double) -> Double { au.squareRoot() * 29 }
@@ -223,7 +276,31 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
             material.diffuse.contents = UIColor(hex: body.accent).withAlphaComponent(0.16)
             material.writesToDepthBuffer = false
 
-            scene.rootNode.addChildNode(SCNNode(geometry: geometry))
+            let node = SCNNode(geometry: geometry)
+            scene.rootNode.addChildNode(node)
+            orbitNodes[body.name] = node
+        }
+    }
+
+    /// Rebuilds the ellipses for a new date. Only called when the scrub has moved far enough to
+    /// matter — the elements precess slowly, so redrawing these every frame would be waste.
+    private func rebuildOrbits(for date: Date) {
+        orbitsBuiltFor = date
+        for body in catalog.orbiting {
+            guard let node = orbitNodes[body.name], let geometry = node.geometry else { continue }
+            let vertices = Orbits.orbitPath(body, at: date, segments: 240).map { raw -> SCNVector3 in
+                let au = (raw.x * raw.x + raw.y * raw.y + raw.z * raw.z).squareRoot()
+                let scaled = au > 0 ? raw / au * displayRadius(au) : raw
+                return SCNVector3(Float(scaled.x), Float(scaled.y), Float(scaled.z))
+            }
+            var indices: [Int32] = []
+            for i in 0..<(vertices.count - 1) { indices += [Int32(i), Int32(i + 1)] }
+            let rebuilt = SCNGeometry(
+                sources: [SCNGeometrySource(vertices: vertices)],
+                elements: [SCNGeometryElement(indices: indices, primitiveType: .line)]
+            )
+            rebuilt.firstMaterial = geometry.firstMaterial
+            node.geometry = rebuilt
         }
     }
 
@@ -304,26 +381,131 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     }
 
     private func update(at time: TimeInterval) {
-        // Real positions, for the real current moment, recomputed every frame. The planets are
-        // where they actually are.
-        let now = Date()
+        sampleFrameTime(at: time)
+        advanceTime(at: time)
+
+        // Positions for whatever moment we are showing — the live present by default, or wherever
+        // the thumb has wound the clock to.
+        let date = displayDate
         for body in catalog.orbiting {
-            bodyNodes[body.name]?.simdPosition = SIMD3<Float>(displayPosition(body, at: now))
+            bodyNodes[body.name]?.simdPosition = SIMD3<Float>(displayPosition(body, at: date))
         }
 
-        guard time >= nextChangeAt else { return }
+        // The ellipses precess. Redraw them only once the scrub has moved a couple of years,
+        // which is far below the point where the drift is visible but far above every frame.
+        if abs(date.timeIntervalSince(orbitsBuiltFor)) > 2 * 365 * 86400 { rebuildOrbits(for: date) }
+
+        let live = isLive
+        if clock.date != date || clock.isLive != live { clock = Clock(date: date, isLive: live) }
+        // Keep the caption's distance honest while the clock moves under it.
+        if let body = currentBody, !live || isScrubbing { caption = makeCaption(for: body, at: date) }
+
+        guard !ambientPaused, !isScrubbing, time >= nextChangeAt else { return }
         nextChangeAt = time + dwell
-        advance(to: now)
+        advance(to: date)
     }
 
-    private func advance(to now: Date) {
+    private func advanceTime(at time: TimeInterval) {
+        let step = lastFrameAt > 0 ? min(time - lastFrameAt, 0.1) : 0
+
+        if !isScrubbing && scrubVelocity != 0 {
+            // Coast, then settle. Exponential decay reads as momentum rather than a hard stop.
+            timeOffset += scrubVelocity * step * 86400
+            scrubVelocity *= pow(0.12, step)
+            if abs(scrubVelocity) < 0.5 { scrubVelocity = 0 }
+            clampOffset()
+        }
+
+        // Left alone, it goes home. This is a screensaver first: it must always return to showing
+        // the real present rather than stranding you in 2043 because you brushed the remote on
+        // your way out of the room. Play/Pause (isHoming) does the same thing without the wait.
+        let idle = !isScrubbing && scrubVelocity == 0 && time - lastInteractionAt > Self.idleBeforeReturn
+        guard isHoming || idle, !isLive else {
+            if isLive && isHoming { isHoming = false }
+            return
+        }
+        timeOffset *= pow(isHoming ? 0.02 : 0.25, step)
+        if abs(timeOffset) < 60 {
+            timeOffset = 0
+            isHoming = false
+            ambientPaused = false
+        }
+    }
+
+    private func clampOffset() {
+        let target = Date().addingTimeInterval(timeOffset)
+        if target < Self.minDate { timeOffset = Self.minDate.timeIntervalSince(Date()); scrubVelocity = 0 }
+        if target > Self.maxDate { timeOffset = Self.maxDate.timeIntervalSince(Date()); scrubVelocity = 0 }
+    }
+
+    private var currentBody: Body? {
+        featured.indices.contains(featuredIndex) ? featured[featuredIndex] : nil
+    }
+
+    // MARK: - Input
+
+    func beginScrub() {
+        isScrubbing = true
+        scrubVelocity = 0
+        ambientPaused = true
+        lastInteractionAt = lastFrameAt
+    }
+
+    /// `points` is the horizontal travel of the thumb since the gesture began.
+    func scrub(toTranslation points: Double, from anchor: TimeInterval) {
+        timeOffset = anchor + points * Self.daysPerPoint * 86400
+        clampOffset()
+        lastInteractionAt = lastFrameAt
+    }
+
+    /// `velocity` is the thumb's horizontal speed in points/second when it lifted.
+    func endScrub(velocity: Double) {
+        isScrubbing = false
+        scrubVelocity = velocity * Self.daysPerPoint
+        lastInteractionAt = lastFrameAt
+    }
+
+    var scrubAnchor: TimeInterval { timeOffset }
+
+    /// Discrete input for a discrete target: step the camera to the next or previous world.
+    func step(by delta: Int) {
+        guard !featured.isEmpty else { return }
+        ambientPaused = true
+        lastInteractionAt = lastFrameAt
+        featuredIndex = ((featuredIndex + delta) % featured.count + featured.count) % featured.count
+        flyToCurrent(at: displayDate)
+        nextChangeAt = lastFrameAt + dwell
+    }
+
+    /// Select toggles the ambient drift, so you can hold on a world and just look at it.
+    func toggleAmbient() {
+        ambientPaused.toggle()
+        lastInteractionAt = lastFrameAt
+        nextChangeAt = lastFrameAt + dwell
+    }
+
+    /// Play/Pause snaps the clock back to the present without waiting out the idle timer.
+    func returnToNow() {
+        scrubVelocity = 0
+        isScrubbing = false
+        ambientPaused = false
+        lastInteractionAt = lastFrameAt
+        // Eased rather than instant: watching the planets wind back to where they really are is
+        // the most legible possible confirmation of what "live" means.
+        isHoming = true
+    }
+
+    private var isHoming = false
+
+    private func advance(to date: Date) {
         featuredIndex = (featuredIndex + 1) % featured.count
-        let body = featured[featuredIndex]
-        guard let node = bodyNodes[body.name] else { return }
+        flyToCurrent(at: date)
+    }
 
-        let target = SIMD3<Double>(node.simdPosition)
-        let vantage = vantagePoint(for: body, at: target)
+    private func flyToCurrent(at date: Date) {
+        guard let body = currentBody, let node = bodyNodes[body.name] else { return }
 
+        let vantage = vantagePoint(for: body, at: SIMD3<Double>(node.simdPosition))
         focusTarget.simdPosition = node.simdPosition
 
         SCNTransaction.begin()
@@ -332,15 +514,47 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         cameraNode.simdPosition = SIMD3<Float>(vantage)
         SCNTransaction.commit()
 
-        let au = Orbits.heliocentricDistanceAU(body, at: now)
-        caption = Caption(
+        caption = makeCaption(for: body, at: date)
+    }
+
+    private func makeCaption(for body: Body, at date: Date) -> Caption {
+        let au = Orbits.heliocentricDistanceAU(body, at: date)
+        let when = isLive ? "right now" : "on \(Self.captionDate.string(from: date))"
+        return Caption(
             name: body.name.uppercased(),
             kind: body.kind,
             distance: body.name == "Sun"
                 ? "The centre of everything"
-                : String(format: au < 2 ? "%.3f AU from the Sun, right now" : "%.2f AU from the Sun, right now", au),
+                : String(format: au < 2 ? "%.3f AU from the Sun, %@" : "%.2f AU from the Sun, %@", au, when),
             fact: body.fact
         )
+    }
+
+    private static let captionDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMMM yyyy"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter
+    }()
+
+    private func sampleFrameTime(at time: TimeInterval) {
+        if lastFrameAt > 0 { worstFrame = max(worstFrame, time - lastFrameAt) }
+        lastFrameAt = time
+        frameCount += 1
+
+        if windowStart == 0 { windowStart = time; return }
+        let elapsed = time - windowStart
+        guard elapsed >= 3 else { return }
+
+        // 60fps is a 16.7ms budget. Report the worst frame in the window too: a good average with
+        // an ugly tail is what a stutter actually looks like, and an average alone hides it.
+        #if DEBUG
+        let fps = Double(frameCount) / elapsed
+        print(String(format: "[perf] %.1f fps avg · worst frame %.1f ms · budget 16.7 ms", fps, worstFrame * 1000))
+        #endif
+        frameCount = 0
+        worstFrame = 0
+        windowStart = time
     }
 
     /// Places the camera off to the side of the body rather than between it and the Sun, so the

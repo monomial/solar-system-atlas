@@ -21,9 +21,49 @@ struct AmbientView: View {
                     // the eye lands on it — which also let the last line clip off the bottom.
                     .transition(.opacity)
             }
+
+            VStack {
+                HStack {
+                    Spacer()
+                    DateChip(clock: orrery.clock).padding(.trailing, 100).padding(.top, 60)
+                }
+                Spacer()
+            }
         }
         .background(.black)
         .animation(.easeInOut(duration: 1.4), value: orrery.caption)
+    }
+}
+
+/// Mirrors the web atlas's date chip: a live dot when the scene is showing the real present, the
+/// date itself when the clock has been wound elsewhere. It is the only persistent chrome, and it
+/// earns that because "is this real, or am I looking at 2043?" is the one question the viewer
+/// must never have to guess at.
+private struct DateChip: View {
+    let clock: OrreryScene.Clock
+
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM yyyy"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter
+    }()
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Circle()
+                .fill(clock.isLive ? Color.green : Color(red: 1, green: 0.75, blue: 0.35))
+                .frame(width: 12, height: 12)
+            Text(clock.isLive ? "LIVE" : Self.formatter.string(from: clock.date).uppercased())
+                .font(.system(size: 22, weight: .semibold))
+                .tracking(2)
+                .foregroundStyle(.white.opacity(0.85))
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 26)
+        .padding(.vertical, 14)
+        .background(.black.opacity(0.45), in: Capsule())
+        .animation(.easeInOut(duration: 0.4), value: clock.isLive)
     }
 }
 
@@ -47,6 +87,7 @@ private struct TitleCard: View {
             Text(caption.distance)
                 .font(.system(size: 34, weight: .medium))
                 .foregroundStyle(Color(red: 1, green: 0.83, blue: 0.55))
+                .monospacedDigit()
 
             Text(caption.fact)
                 .font(.system(size: 28, weight: .regular))
@@ -61,6 +102,8 @@ private struct TitleCard: View {
 private struct OrreryView: UIViewRepresentable {
     let orrery: OrreryScene
 
+    func makeCoordinator() -> Coordinator { Coordinator(orrery: orrery) }
+
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
         view.scene = orrery.makeScene()
@@ -70,8 +113,58 @@ private struct OrreryView: UIViewRepresentable {
         view.antialiasingMode = .multisampling4X
         view.backgroundColor = .black
         view.preferredFramesPerSecond = 60
+
+        context.coordinator.attachGestures(to: view)
         return view
     }
 
     func updateUIView(_ view: SCNView, context: Context) {}
+
+    @MainActor
+    final class Coordinator: NSObject {
+        private let orrery: OrreryScene
+        private var anchor: TimeInterval = 0
+
+        init(orrery: OrreryScene) { self.orrery = orrery }
+
+        func attachGestures(to view: SCNView) {
+            // Continuous: the thumb drives time.
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+            view.addGestureRecognizer(pan)
+
+            // Discrete: directional *clicks* move between worlds. Deliberately clicks and not
+            // swipes — a swipe on the touch surface is the same gesture as a scrub, and making
+            // one input mean two things is how a remote starts feeling haunted.
+            addPress(.leftArrow, #selector(handleLeft), to: view)
+            addPress(.rightArrow, #selector(handleRight), to: view)
+            addPress(.select, #selector(handleSelect), to: view)
+            addPress(.playPause, #selector(handlePlayPause), to: view)
+        }
+
+        private func addPress(_ type: UIPress.PressType, _ action: Selector, to view: UIView) {
+            let recognizer = UITapGestureRecognizer(target: self, action: action)
+            recognizer.allowedPressTypes = [NSNumber(value: type.rawValue)]
+            view.addGestureRecognizer(recognizer)
+        }
+
+        @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+            let dx = Double(gesture.translation(in: gesture.view).x)
+            switch gesture.state {
+            case .began:
+                anchor = orrery.scrubAnchor
+                orrery.beginScrub()
+            case .changed:
+                orrery.scrub(toTranslation: dx, from: anchor)
+            case .ended, .cancelled:
+                orrery.endScrub(velocity: Double(gesture.velocity(in: gesture.view).x))
+            default:
+                break
+            }
+        }
+
+        @objc private func handleLeft() { orrery.step(by: -1) }
+        @objc private func handleRight() { orrery.step(by: 1) }
+        @objc private func handleSelect() { orrery.toggleAmbient() }
+        @objc private func handlePlayPause() { orrery.returnToNow() }
+    }
 }
