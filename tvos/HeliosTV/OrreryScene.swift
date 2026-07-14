@@ -42,6 +42,24 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     private let tour = ["Sun", "Mercury", "Venus", "Earth", "Mars", "Ceres", "Jupiter", "Saturn",
                         "Uranus", "Neptune", "Pluto", "Haumea", "Makemake", "Eris"]
 
+    /// A camera move, interpolated by hand rather than handed to SCNTransaction.
+    ///
+    /// SCNTransaction lerps the camera along a straight line while the look-at target snaps to the
+    /// destination immediately. Both halves of that are wrong. The straight line drives through the
+    /// middle of the system, where the parallax is violent and the inner planets smear past; the
+    /// snapped target makes the view spin to catch up. Together they give you whiplash.
+    ///
+    /// So: bow the path outward and upward, ease the *aim* along with the position, and let long
+    /// journeys take longer — whiplash is an angular-rate problem, not a distance problem.
+    private struct Flight {
+        let from: SIMD3<Double>, control: SIMD3<Double>, to: SIMD3<Double>
+        let aimFrom: SIMD3<Double>, aimTo: SIMD3<Double>
+        let start: TimeInterval, duration: TimeInterval
+        var endsAt: TimeInterval { start + duration }
+    }
+    private var flight: Flight?
+    private var flightEndsAt: TimeInterval = 0
+
     private let narrator = Narrator()
     /// How many lines each body has already spoken, so it works through them instead of repeating.
     private var spokenCount: [String: Int] = [:]
@@ -155,8 +173,10 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
         let lookAt = SCNLookAtConstraint(target: focusTarget)
         lookAt.isGimbalLockEnabled = true
-        // Damping keeps the aim from snapping when the target planet is close to the camera.
-        lookAt.influenceFactor = 0.08
+        // Full influence. The old value (0.08) damped the aim to hide the fact that the target
+        // node was being *teleported* to the next planet — the camera then whipped round chasing
+        // it. The target is now eased along with the camera, so the aim can track it exactly.
+        lookAt.influenceFactor = 1
         cameraNode.constraints = [lookAt]
 
         scene.rootNode.addChildNode(cameraNode)
@@ -394,6 +414,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     private func update(at time: TimeInterval) {
         sampleFrameTime(at: time)
         advanceTime(at: time)
+        flyCamera(at: time)
 
         // Positions for whatever moment we are showing — the live present by default, or wherever
         // the thumb has wound the clock to.
@@ -411,8 +432,8 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         // Keep the caption's distance honest while the clock moves under it.
         if let body = currentBody, !live || isScrubbing { caption = makeCaption(for: body, at: date) }
 
-        guard !ambientPaused, !isScrubbing, time >= nextChangeAt else { return }
-        nextChangeAt = time + dwell
+        // Never start a new move while still flying, or the camera would jump mid-arc.
+        guard !ambientPaused, !isScrubbing, flight == nil, time >= nextChangeAt else { return }
         advance(to: date)
     }
 
@@ -517,16 +538,54 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     private func flyToCurrent(at date: Date) {
         guard let body = currentBody, let node = bodyNodes[body.name] else { return }
 
-        let vantage = vantagePoint(for: body, at: SIMD3<Double>(node.simdPosition))
-        focusTarget.simdPosition = node.simdPosition
+        let target = SIMD3<Double>(node.simdPosition)
+        let vantage = vantagePoint(for: body, at: target)
+        let from = SIMD3<Double>(cameraNode.simdPosition)
+        let travel = simd_distance(from, vantage)
 
-        SCNTransaction.begin()
-        SCNTransaction.animationDuration = flightDuration
-        SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        cameraNode.simdPosition = SIMD3<Float>(vantage)
-        SCNTransaction.commit()
+        // Long hauls take longer, so the view never has to swing fast to keep up.
+        let duration = min(15, max(6.5, 5.5 + travel * 0.04))
+
+        // Bow the path outward from the Sun and lift it a little, rather than cutting straight
+        // across the middle of the system.
+        let midpoint = (from + vantage) * 0.5
+        let outward = simd_length(midpoint) > 1 ? simd_normalize(midpoint) : SIMD3<Double>(0, 1, 0)
+        let control = midpoint + outward * (travel * 0.3) + SIMD3<Double>(0, travel * 0.14, 0)
+
+        flight = Flight(from: from, control: control, to: vantage,
+                        aimFrom: SIMD3<Double>(focusTarget.simdPosition), aimTo: target,
+                        start: lastFrameAt, duration: duration)
+        flightEndsAt = lastFrameAt + duration
 
         narrate(body, at: date)
+    }
+
+    private func flyCamera(at time: TimeInterval) {
+        guard let flight else {
+            // Not flying: hold station on the current world. Without this the planet would slide
+            // out of frame the moment you scrub time, since it is orbiting and the camera is not.
+            guard let body = currentBody, let node = bodyNodes[body.name] else { return }
+            let target = SIMD3<Double>(node.simdPosition)
+            focusTarget.simdPosition = node.simdPosition
+            let step = lastFrameAt > 0 ? min(time - lastFrameAt, 0.1) : 0
+            let ease = 1 - pow(0.06, step)   // frame-rate independent approach
+            let wanted = vantagePoint(for: body, at: target)
+            cameraNode.simdPosition = SIMD3<Float>(mix(SIMD3<Double>(cameraNode.simdPosition), wanted, t: ease))
+            return
+        }
+
+        let t = min(1, max(0, (time - flight.start) / flight.duration))
+        // Cubic ease in and out: the angular rate is zero at both ends, which is exactly where a
+        // hard start or a hard stop would read as a snap.
+        let e = t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2
+
+        // Quadratic Bezier along the bowed path.
+        let inv = 1 - e
+        let position = flight.from * (inv * inv) + flight.control * (2 * inv * e) + flight.to * (e * e)
+        cameraNode.simdPosition = SIMD3<Float>(position)
+        focusTarget.simdPosition = SIMD3<Float>(mix(flight.aimFrom, flight.aimTo, t: e))
+
+        if t >= 1 { self.flight = nil }
     }
 
     /// Speaks the next unheard line for this body, and holds the camera until it has finished.
@@ -553,7 +612,10 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         let clipID = "narration-\(body.name.lowercased())-\(turn % lines.count)"
         narrator.speak(line, clipID: clipID) { [weak self] in
             guard let self else { return }
-            self.nextChangeAt = self.lastFrameAt + Self.pauseAfterNarration
+            // Hold for a beat after we have both arrived AND finished speaking. A short line
+            // finishes long before a long flight lands, and without this the camera would touch
+            // down and immediately leave again.
+            self.nextChangeAt = max(self.lastFrameAt, self.flightEndsAt) + Self.pauseAfterNarration
         }
     }
 
@@ -612,6 +674,11 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
         return target + tangent * distance + SIMD3(0, height, 0) - outward * (distance * 0.25)
     }
+}
+
+/// Linear interpolation. simd_mix exists but is fussy about types here, and this reads clearer.
+private func mix(_ a: SIMD3<Double>, _ b: SIMD3<Double>, t: Double) -> SIMD3<Double> {
+    a + (b - a) * t
 }
 
 extension UIColor {
