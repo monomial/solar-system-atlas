@@ -75,6 +75,10 @@ const MOONS:Planet[]=[
 const ALL_BODIES=[...PLANETS,...DWARFS,...MOONS];
 const ORBITING_BODIES=[...PLANETS.slice(1),...DWARFS];
 
+// Next rewrites its own asset URLs for basePath, but Three.js loads textures from raw
+// strings, so these paths must carry the prefix themselves. See next.config.ts.
+const ASSET_BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 const TEXTURE_MAPS:Partial<Record<BodyName,{path:string;label:string}>>={
   Sun:{path:"/textures/sun.jpg",label:"NASA-based solar reference texture"},
   Mercury:{path:"/textures/mercury.jpg",label:"NASA-based global reference map"},
@@ -107,7 +111,6 @@ const TOUR: { body: BodyName; eyebrow: string; title: string; note: string }[] =
 const SOURCE_LINKS = [
   ["JPL orbital elements", "https://ssd.jpl.nasa.gov/planets/approx_pos.html"],
   ["JPL Small-Body Database", "https://ssd-api.jpl.nasa.gov/doc/sbdb.html"],
-  ["JPL Horizons", "https://ssd.jpl.nasa.gov/horizons/"],
   ["JPL satellite elements", "https://ssd.jpl.nasa.gov/sats/elem/"],
   ["JPL satellite physical data", "https://ssd.jpl.nasa.gov/sats/phys_par/"],
   ["Planet texture maps · CC BY 4.0", "https://www.solarsystemscope.com/textures/"],
@@ -206,13 +209,13 @@ function labelTexture(name: string, color: string) {
 
 export default function Home() {
   const mountRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<{ focus:(name:BodyName,close?:boolean)=>void;scale:(mode:"readable"|"linear")=>void;date:(date:Date)=>Promise<void>;previewDate:(date:Date)=>void }|null>(null);
+  const apiRef = useRef<{ focus:(name:BodyName,close?:boolean)=>void;scale:(mode:"readable"|"linear")=>void;date:(date:Date)=>void;previewDate:(date:Date)=>void }|null>(null);
   const [selected, setSelected] = useState<BodyName | null>("Earth");
   const [tourIndex, setTourIndex] = useState<number | null>(null);
   const [scaleMode, setScaleMode] = useState<"readable" | "linear">("readable");
   const [distanceLabel, setDistanceLabel] = useState("30 AU span");
   const [ready, setReady] = useState(false);
-  const today=dateValue(new Date());const [mapDate,setMapDate]=useState(today);const [calculating,setCalculating]=useState(false);
+  const today=dateValue(new Date());const [mapDate,setMapDate]=useState(today);
   const selectedDate=useMemo(()=>dateForMap(mapDate),[mapDate]);const isToday=mapDate===today;
   const [isPlaying,setIsPlaying]=useState(false);const [playbackRate,setPlaybackRate]=useState(30);const [playbackDirection,setPlaybackDirection]=useState<1|-1>(1);const simulationDateRef=useRef(selectedDate);
   const selectedBody = useMemo(() => ALL_BODIES.find(p => p.name === selected), [selected]);
@@ -230,7 +233,7 @@ export default function Home() {
       renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     } catch {
       mount.classList.add("no-webgl");
-      apiRef.current = { focus:(name)=>setSelected(name),scale:()=>setSelected(null),date:async()=>undefined,previewDate:()=>undefined };
+      apiRef.current = { focus:(name)=>setSelected(name),scale:()=>setSelected(null),date:()=>undefined,previewDate:()=>undefined };
       window.setTimeout(() => setReady(true), 0);
       return () => { apiRef.current = null; };
     }
@@ -242,11 +245,11 @@ export default function Home() {
     function mappedTexture(body:Planet){
       const source=TEXTURE_MAPS[body.name];
       if(!source)return makePlanetTexture(body);
-      const texture=textureLoader.load(source.path);
+      const texture=textureLoader.load(`${ASSET_BASE}${source.path}`);
       texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=maxAnisotropy;texture.wrapS=THREE.RepeatWrapping;
       return texture;
     }
-    const saturnRingTexture=textureLoader.load("/textures/saturn-ring.png");
+    const saturnRingTexture=textureLoader.load(`${ASSET_BASE}/textures/saturn-ring.png`);
     saturnRingTexture.colorSpace=THREE.SRGBColorSpace;saturnRingTexture.anisotropy=maxAnisotropy;saturnRingTexture.wrapS=THREE.ClampToEdgeWrapping;
     function radialRingGeometry(inner:number,outer:number){
       const geometry=new THREE.RingGeometry(inner,outer,256,1);const positions=geometry.attributes.position,uv=geometry.attributes.uv;
@@ -400,19 +403,13 @@ export default function Home() {
       updateMoonPositions(activeDate,planetDisplayScale);
       if(tracked&&lastFocused){const next=bodies.get(lastFocused)?.position;if(next){const delta=next.clone().sub(tracked);camera.position.add(delta);controls.target.add(delta);if(fly.active){fly.to.add(delta);fly.targetTo.add(delta);}}}
     }
-    async function updateDate(date:Date){
+    function updateDate(date:Date){
       positionBodies(date);
-      const planetDisplayScale=activeScaleMode==="linear"?.36:1;
       for(const body of ORBITING_BODIES){
         const line=orbitGroup.children.find(item=>item.userData.body===body.name) as THREE.Line;const pts=[];
         for(let i=0;i<=180;i++)pts.push(transformed(orbitalPoint(body,(i/180)*Math.PI*2,activeDate),activeScaleMode));
         line.geometry.dispose();line.geometry=new THREE.BufferGeometry().setFromPoints(pts);
       }
-      try{
-        const response=await fetch(`/api/dwarf-positions?date=${dateValue(activeDate)}`);if(!response.ok)throw new Error("Horizons unavailable");
-        const data=await response.json() as {positions:Record<string,[number,number,number]>};
-        for(const dwarf of DWARFS){const vector=data.positions[dwarf.name];if(!vector)continue;const [x,y,z]=vector;const pos=transformed(new THREE.Vector3(x,z,y),activeScaleMode);bodies.get(dwarf.name)!.position.copy(pos);labels.find(item=>item.userData.body===dwarf.name)?.position.copy(pos).add(new THREE.Vector3(0,dwarf.radius*planetDisplayScale+3.2,0));}
-      }catch{/* SBDB two-body positions remain as an offline fallback. */}
       if(!viewingFullSystem&&lastFocused)focus(lastFocused,true);
     }
     apiRef.current={focus,scale:rebuildScale,date:updateDate,previewDate:date=>positionBodies(date,true)};
@@ -429,7 +426,7 @@ export default function Home() {
       const span=camera.position.distanceTo(controls.target); setDistanceLabel(span<16?"Planetary view":span<55?"Local neighborhood":span<140?"Inner system":span<260?"30 AU span":"Deep system"); composer.render(); }
     const loadFallback=window.setTimeout(()=>setReady(true),5000);
     textureManager.onLoad=()=>{window.clearTimeout(loadFallback);setReady(true);};
-    animate(performance.now()); window.setTimeout(() => { focus("Earth");void updateDate(activeDate); }, 0);
+    animate(performance.now()); window.setTimeout(() => { focus("Earth");updateDate(activeDate); }, 0);
     function resize(){ const w=mount.clientWidth,h=mount.clientHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);composer.setSize(w,h); }
     window.addEventListener("resize",resize);
     return()=>{ window.clearTimeout(loadFallback);cancelAnimationFrame(frame);window.removeEventListener("resize",resize);renderer.domElement.removeEventListener("pointerup",onPointer);renderer.domElement.removeEventListener("pointermove",onMove);controls.dispose();composer.dispose();renderer.dispose();mount.replaceChildren();apiRef.current=null; };
@@ -444,28 +441,26 @@ export default function Home() {
       const bounded=Math.max(MIN_SIM_TIME,Math.min(MAX_SIM_TIME,nextTime));const nextDate=new Date(bounded);
       simulationDateRef.current=nextDate;apiRef.current?.previewDate(nextDate);
       if(now-lastLabel>100){setMapDate(utcDateValue(nextDate));lastLabel=now;}
-      if(bounded!==nextTime&&!stopping){stopping=true;void finishPlayback(nextDate);return;}
+      if(bounded!==nextTime&&!stopping){stopping=true;finishPlayback(nextDate);return;}
       frame=requestAnimationFrame(tick);
     }
     frame=requestAnimationFrame(tick);return()=>cancelAnimationFrame(frame);
   },[isPlaying,playbackRate,playbackDirection]);
 
   function choose(name: BodyName) { setTourIndex(null); apiRef.current?.focus(name); }
-  function beginTour() { if(isPlaying)void finishPlayback();setTourIndex(0); apiRef.current?.focus(TOUR[0].body, false); }
+  function beginTour() { if(isPlaying)finishPlayback();setTourIndex(0); apiRef.current?.focus(TOUR[0].body, false); }
   function changeTour(next:number){ const i=(next+TOUR.length)%TOUR.length;setTourIndex(i);apiRef.current?.focus(TOUR[i].body,true); }
   function toggleScale(){ const next=scaleMode==="readable"?"linear":"readable";setScaleMode(next);apiRef.current?.scale(next); }
-  async function changeDate(value:string){
+  function changeDate(value:string){
     if(!value)return;
-    setIsPlaying(false);const date=dateForMap(value);simulationDateRef.current=date;setMapDate(value);setCalculating(true);
-    try{await apiRef.current?.date(date);}finally{setCalculating(false);}
+    setIsPlaying(false);const date=dateForMap(value);simulationDateRef.current=date;setMapDate(value);apiRef.current?.date(date);
   }
-  async function resetToday(){await changeDate(dateValue(new Date()));}
-  function startPlayback(){if(calculating)return;setTourIndex(null);simulationDateRef.current=selectedDate;setIsPlaying(true);}
-  async function finishPlayback(date=simulationDateRef.current){
-    setIsPlaying(false);const rounded=dateFromValue(utcDateValue(date));simulationDateRef.current=rounded;setMapDate(utcDateValue(rounded));setCalculating(true);
-    try{await apiRef.current?.date(rounded);}finally{setCalculating(false);}
+  function resetToday(){changeDate(dateValue(new Date()));}
+  function startPlayback(){setTourIndex(null);simulationDateRef.current=selectedDate;setIsPlaying(true);}
+  function finishPlayback(date=simulationDateRef.current){
+    setIsPlaying(false);const rounded=dateFromValue(utcDateValue(date));simulationDateRef.current=rounded;setMapDate(utcDateValue(rounded));apiRef.current?.date(rounded);
   }
-  function togglePlayback(){if(isPlaying)void finishPlayback();else startPlayback();}
+  function togglePlayback(){if(isPlaying)finishPlayback();else startPlayback();}
   const selectedMoon=selectedBody?.moon;const moonParent=selectedMoon?PLANETS.find(body=>body.name===selectedMoon.parent):undefined;
   const distanceReference=moonParent??selectedBody;
   const currentDistance = distanceReference && distanceReference.name !== "Sun" ? heliocentricPosition(distanceReference,selectedDate).length() : 0;
@@ -498,9 +493,9 @@ export default function Home() {
           <button className={tourIndex!==null?"active":""} onClick={beginTour}><span className="play">▶</span> Guided tour</button>
         </nav>
         <div className="date-chip">
-          <span className={`date-status ${isToday?"live":""} ${calculating?"loading":""} ${isPlaying?"playing":""}`}><i/>{calculating?"CALCULATING":isPlaying?"PLAYING":isToday?"LIVE":"DATE"}</span>
-          <input type="date" min="1800-01-01" max="2050-12-31" value={mapDate} disabled={isPlaying} onChange={event=>void changeDate(event.target.value)} aria-label="Solar system map date"/>
-          {!isToday&&<button onClick={()=>void resetToday()}>TODAY</button>}
+          <span className={`date-status ${isToday?"live":""} ${isPlaying?"playing":""}`}><i/>{isPlaying?"PLAYING":isToday?"LIVE":"DATE"}</span>
+          <input type="date" min="1800-01-01" max="2050-12-31" value={mapDate} disabled={isPlaying} onChange={event=>changeDate(event.target.value)} aria-label="Solar system map date"/>
+          {!isToday&&<button onClick={resetToday}>TODAY</button>}
         </div>
       </header>
 
@@ -524,10 +519,10 @@ export default function Home() {
 
       {tourIndex===null&&<section className={`playback-bar ${isPlaying?"is-playing":""}`} aria-label="Orbital playback controls">
         <button className="direction-button" onClick={()=>setPlaybackDirection(value=>value===1?-1:1)} aria-label={`Play ${playbackDirection===1?"backward":"forward"} through time`} title="Reverse time direction">{playbackDirection===1?"→":"←"}</button>
-        <button className="playback-button" onClick={togglePlayback} disabled={calculating} aria-label={isPlaying?"Pause orbital playback":"Start orbital playback"}>{isPlaying?"Ⅱ":"▶"}</button>
+        <button className="playback-button" onClick={togglePlayback} aria-label={isPlaying?"Pause orbital playback":"Start orbital playback"}>{isPlaying?"Ⅱ":"▶"}</button>
         <div className="simulation-date"><span>SIMULATION DATE</span><strong>{mapDateLabel}</strong></div>
         <label className="speed-picker"><span>SPEED</span><select value={playbackRate} onChange={event=>setPlaybackRate(Number(event.target.value))} aria-label="Simulation speed">{PLAYBACK_SPEEDS.map(option=><option key={option.days} value={option.days}>{option.label}</option>)}</select></label>
-        <button className="now-button" onClick={()=>void resetToday()} disabled={calculating}>NOW</button>
+        <button className="now-button" onClick={resetToday}>NOW</button>
       </section>}
 
       {selectedBody && tourIndex===null && <aside className="info-panel" aria-live="polite">
@@ -558,7 +553,7 @@ export default function Home() {
       </section>}
 
       <footer className="footer-note">
-        <span>POSITIONS</span> Approximate heliocentric positions for {isToday?"today":mapDateLabel} · dwarf planets via JPL Horizons
+        <span>POSITIONS</span> Approximate heliocentric positions for {isToday?"today":mapDateLabel} · computed in-browser from JPL orbital elements
         <details><summary>Sources</summary><div>{SOURCE_LINKS.map(([label,url])=><a key={url} href={url} target="_blank" rel="noreferrer">{label} ↗</a>)}</div></details>
       </footer>
     </main>
