@@ -63,6 +63,8 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     private let narrator = Narrator()
     /// How many lines each body has already spoken, so it works through them instead of repeating.
     private var spokenCount: [String: Int] = [:]
+    /// Chosen when the flight starts, delivered when it lands. See `arrive()`.
+    private var pendingLine: String?
     /// Silence after a line finishes, before the camera moves on. Long enough for it to land.
     private static let pauseAfterNarration: TimeInterval = 4.5
     /// Ceiling in case narration never reports finishing — the loop must never wedge.
@@ -85,9 +87,9 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         let isLive: Bool
     }
 
-    /// Seconds each world holds the frame before the camera drifts to the next.
-    private let dwell: TimeInterval = 11
-    private let flightDuration: TimeInterval = 5.5
+    /// How long to hold a world after un-pausing. The ambient pace is otherwise set by the flight
+    /// and the narration, not by a constant — see `arrive()`.
+    private let resumeHold: TimeInterval = 11
 
     // MARK: - Time
     //
@@ -429,8 +431,11 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
         let live = isLive
         if clock.date != date || clock.isLive != live { clock = Clock(date: date, isLive: live) }
-        // Keep the caption's distance honest while the clock moves under it.
-        if let body = currentBody, !live || isScrubbing { caption = makeCaption(for: body, at: date) }
+        // Keep the caption's distance honest while the clock moves under it — but only once the
+        // card is actually up. Mid-flight there is deliberately no card to refresh.
+        if caption != nil, let body = currentBody, !live || isScrubbing {
+            caption = makeCaption(for: body, at: date)
+        }
 
         // Never start a new move while still flying, or the camera would jump mid-arc.
         guard !ambientPaused, !isScrubbing, flight == nil, time >= nextChangeAt else { return }
@@ -514,7 +519,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     func toggleAmbient() {
         ambientPaused.toggle()
         lastInteractionAt = lastFrameAt
-        nextChangeAt = lastFrameAt + dwell
+        nextChangeAt = lastFrameAt + resumeHold
     }
 
     /// Play/Pause snaps the clock back to the present without waiting out the idle timer.
@@ -557,7 +562,41 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
                         start: lastFrameAt, duration: duration)
         flightEndsAt = lastFrameAt + duration
 
-        narrate(body, at: date)
+        // Pick the line now, but do not say it yet — it is delivered on arrival. Talking about a
+        // world the camera is still travelling towards means the words land on the wrong picture:
+        // you hear about Saturn's rings while still looking at Jupiter. Fly first, then speak.
+        pendingLine = nextLine(for: body)
+
+        // The card goes with the voice, so it fades out for the journey and returns on arrival.
+        // Leaving it up would park text on screen that nothing is reading.
+        caption = nil
+
+        // Safety ceiling, replaced the moment the voice reports back.
+        nextChangeAt = flightEndsAt + Self.maxDwell
+    }
+
+    /// The next line this body has not used yet, cycling round when they run out.
+    private func nextLine(for body: Body) -> String {
+        let lines = catalog.narration[body.name] ?? []
+        guard !lines.isEmpty else { return body.fact }
+        let turn = spokenCount[body.name, default: 0]
+        spokenCount[body.name] = turn + 1
+        return lines[turn % lines.count]
+    }
+
+    /// The camera has landed. Now show the card and say the words, together, as one beat.
+    private func arrive() {
+        guard let body = currentBody, let line = pendingLine else { return }
+        pendingLine = nil
+
+        caption = makeCaption(for: body, at: displayDate, line: line)
+
+        let lines = catalog.narration[body.name] ?? []
+        let turn = (spokenCount[body.name, default: 1] - 1) % max(lines.count, 1)
+        narrator.speak(line, clipID: "narration-\(body.name.lowercased())-\(turn)") { [weak self] in
+            guard let self else { return }
+            self.nextChangeAt = self.lastFrameAt + Self.pauseAfterNarration
+        }
     }
 
     private func flyCamera(at time: TimeInterval) {
@@ -585,37 +624,9 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         cameraNode.simdPosition = SIMD3<Float>(position)
         focusTarget.simdPosition = SIMD3<Float>(mix(flight.aimFrom, flight.aimTo, t: e))
 
-        if t >= 1 { self.flight = nil }
-    }
-
-    /// Speaks the next unheard line for this body, and holds the camera until it has finished.
-    ///
-    /// The dwell is *driven by the narration*, not a fixed number of seconds. A fixed dwell either
-    /// cuts the voice off mid-sentence or leaves dead air after a short line; letting the words set
-    /// the pace means the loop breathes at the speed of what it is saying.
-    private func narrate(_ body: Body, at date: Date) {
-        let lines = catalog.narration[body.name] ?? []
-        guard !lines.isEmpty else {
-            caption = makeCaption(for: body, at: date, line: body.fact)
-            nextChangeAt = lastFrameAt + dwell
-            return
-        }
-
-        let turn = spokenCount[body.name, default: 0]
-        spokenCount[body.name] = turn + 1
-        let line = lines[turn % lines.count]
-
-        caption = makeCaption(for: body, at: date, line: line)
-
-        // Blocked on the voice, with a ceiling so a lost completion callback cannot wedge the loop.
-        nextChangeAt = lastFrameAt + Self.maxDwell
-        let clipID = "narration-\(body.name.lowercased())-\(turn % lines.count)"
-        narrator.speak(line, clipID: clipID) { [weak self] in
-            guard let self else { return }
-            // Hold for a beat after we have both arrived AND finished speaking. A short line
-            // finishes long before a long flight lands, and without this the camera would touch
-            // down and immediately leave again.
-            self.nextChangeAt = max(self.lastFrameAt, self.flightEndsAt) + Self.pauseAfterNarration
+        if t >= 1 {
+            self.flight = nil
+            arrive()
         }
     }
 
