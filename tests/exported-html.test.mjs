@@ -16,7 +16,7 @@ test("static export produces a page shell", async () => {
 test("textures are exported alongside the page", async () => {
   // Three.js loads these by raw URL, so a missing file fails silently at runtime
   // rather than at build time. Assert the export actually carries them.
-  for (const texture of ["earth.jpg", "saturn-ring.png", "pluto.jpg"]) {
+  for (const texture of ["earth.webp", "saturn-ring.png", "pluto.webp"]) {
     const info = await stat(out(`textures/${texture}`));
     assert.ok(info.size > 0, `textures/${texture} should not be empty`);
   }
