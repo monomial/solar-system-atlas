@@ -14,6 +14,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.helios.HeliosTV
+        # Device builds need signing; simulator builds do not. Set DEVELOPMENT_TEAM in your
+        # environment before `xcodegen generate` so the team ID stays out of the repo:
+        #   export DEVELOPMENT_TEAM=XXXXXXXXXX   # Xcode > Settings > Accounts
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "5.0"

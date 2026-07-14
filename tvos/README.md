@@ -71,11 +71,35 @@ Worth noting against the WWDC25 messaging: SceneKit carries **no `API_DEPRECATED
 in the tvOS 26.5 SDK, and this target builds with zero deprecation warnings. Revisit if that
 changes.
 
-## Known gaps
+## Running on a real Apple TV
 
-- Simulator only so far. It has never run on real Apple TV hardware, which is the actual bar —
-  the whole point of building this first was to find out whether it looks stunning on a real TV,
-  and that question is still open.
+Device builds need code signing; simulator builds do not. The team ID is deliberately kept out
+of the repo, so set it in your environment before generating the project:
+
+```sh
+export DEVELOPMENT_TEAM=XXXXXXXXXX     # Xcode > Settings > Accounts > your team
+cd tvos && xcodegen generate
+```
+
+Then, with the Apple TV paired to Xcode and on the same network:
+
+```sh
+xcrun devicectl list devices                      # grab the device UUID
+xcodebuild -project tvos/HeliosTV.xcodeproj -scheme HeliosTV \
+  -destination "platform=tvOS,id=<DEVICE_ID>" -allowProvisioningUpdates build
+xcrun devicectl device install app --device <DEVICE_UUID> \
+  ~/Library/Developer/Xcode/DerivedData/HeliosTV-*/Build/Products/Debug-appletvos/HeliosTV.app
+xcrun devicectl device process launch --device <DEVICE_UUID> com.helios.HeliosTV
+```
+
+If the build products land in `Debug-appletvsimulator`, you are still building for the simulator
+and the `-destination` is wrong.
+
+Log noise you can ignore on tvOS: `failed to load 'RawCamera' bundle`, `fopen failed for data
+file`, and `SCNView implements focusItemsInRect:`. All three are standard platform chatter, not
+faults in this app. `signal 15` on exit is SIGTERM — the session was stopped, not a crash.
+
+## Known gaps
 - No screensaver integration yet. tvOS does not let third-party apps supply system screensavers,
   so "leave it running" is the current story. A Top Shelf extension is the closest native hook.
 - The dwell and flight timings (11s / 5.5s) are guesses tuned by eye in the simulator. They want
