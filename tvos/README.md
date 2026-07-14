@@ -125,6 +125,26 @@ dropping them. OpenAI and ElevenLabs remain wired up behind `TTS_PROVIDER` if yo
 `Narrator` prefers a rendered clip and falls back to on-device synthesis, so an unrendered line
 still speaks — badly, but it speaks.
 
+### Choosing a voice, and why it is Kokoro
+
+Current voice: **Kokoro `bm_george`**, rendered locally, at 0.9 speed.
+
+This is a deliberate *hold*, not a verdict. ElevenLabs sounds better. But the script is still being
+rewritten against what actually holds a four-year-old's attention, and that changes the economics:
+
+- **Kokoro** — free, local, unlimited. Rewriting the script costs nothing, so it stays cheap to
+  keep making the words better. That is the thing we are actually iterating on.
+- **ElevenLabs free tier** — 10,000 characters a month. One full render of the script is 8,270. So
+  the free tier buys you *exactly one render per month*, and every rewrite is rationed against it.
+  Free tier also **cannot use library voices via the API** at all (`paid_plan_required`) — only the
+  premade stock voices (george, lily, brian, alice all work). This, not the API key, is the real
+  reason "the free credits don't work".
+- **ElevenLabs Starter (~$5/mo)** — 30,000 characters, library voices unlocked (Arthur is
+  `C1npRmjB19a6yNkEucvx`). Worth it once the words have settled and re-renders are rare.
+
+Revisit when the script stops changing. Spending a premium allowance on lines that are about to be
+rewritten is just buying polish for a draft.
+
 ## Two bundling traps, both of which bite silently
 
 **The media folder must not be called `Resources`.** A directory by that name at the root of a
