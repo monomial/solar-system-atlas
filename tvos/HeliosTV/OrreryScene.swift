@@ -62,10 +62,15 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
     private let narrator = Narrator()
     private let audio = AmbientAudio()
-    /// How many lines each body has already spoken, so it works through them instead of repeating.
-    private var spokenCount: [String: Int] = [:]
-    /// Chosen when the flight starts, delivered when it lands. See `arrive()`.
-    private var pendingLine: String?
+    /// A shuffle bag of fact indices per body, and the last one played. Every fact is handed out
+    /// once in random order before any repeats, then the bag reshuffles — with no fact landing
+    /// twice in a row across the reshuffle. Mirrors the web app's ShuffleBag: random each cycle,
+    /// but full coverage, so a child eventually hears all of them rather than the same few.
+    private var factBags: [String: [Int]] = [:]
+    private var lastFact: [String: Int] = [:]
+    /// Chosen when the flight starts, delivered on arrival. The index travels with the text so the
+    /// spoken clip and the shown card can never drift apart.
+    private var pendingLine: (text: String, index: Int)?
     /// Silence after a line finishes, before the camera moves on. Long enough for it to land.
     private static let pauseAfterNarration: TimeInterval = 4.5
     /// Ceiling in case narration never reports finishing — the loop must never wedge.
@@ -609,26 +614,32 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         nextChangeAt = flightEndsAt + Self.maxDwell
     }
 
-    /// The next line this body has not used yet, cycling round when they run out.
-    private func nextLine(for body: Body) -> String {
+    /// The next fact for this body, drawn at random from its shuffle bag, with its index.
+    private func nextLine(for body: Body) -> (text: String, index: Int) {
         let lines = catalog.narration[body.name] ?? []
-        guard !lines.isEmpty else { return body.fact }
-        let turn = spokenCount[body.name, default: 0]
-        spokenCount[body.name] = turn + 1
-        return lines[turn % lines.count]
+        guard lines.count > 1 else { return (lines.first ?? body.fact, 0) }
+
+        var bag = factBags[body.name] ?? []
+        if bag.isEmpty {
+            bag = Array(0..<lines.count).shuffled()
+            // Don't let the reshuffle repeat the fact we just ended on.
+            if let last = lastFact[body.name], bag.first == last, bag.count > 1 { bag.swapAt(0, 1) }
+        }
+        let index = bag.removeFirst()
+        factBags[body.name] = bag
+        lastFact[body.name] = index
+        return (lines[index], index)
     }
 
     /// The camera has landed. Now show the card and say the words, together, as one beat.
     private func arrive() {
-        guard let body = currentBody, let line = pendingLine else { return }
+        guard let body = currentBody, let pending = pendingLine else { return }
         pendingLine = nil
 
-        caption = makeCaption(for: body, at: displayDate, line: line)
+        caption = makeCaption(for: body, at: displayDate, line: pending.text)
 
-        let lines = catalog.narration[body.name] ?? []
-        let turn = (spokenCount[body.name, default: 1] - 1) % max(lines.count, 1)
         audio.setNarrating(true)
-        narrator.speak(line, clipID: "narration-\(body.name.lowercased())-\(turn)") { [weak self] in
+        narrator.speak(pending.text, clipID: "narration-\(body.name.lowercased())-\(pending.index)") { [weak self] in
             guard let self else { return }
             self.audio.setNarrating(false)
             self.nextChangeAt = self.lastFrameAt + Self.pauseAfterNarration
