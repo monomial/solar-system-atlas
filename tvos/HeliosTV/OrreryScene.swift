@@ -61,6 +61,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     private var flightEndsAt: TimeInterval = 0
 
     private let narrator = Narrator()
+    private let audio = AmbientAudio()
     /// How many lines each body has already spoken, so it works through them instead of repeating.
     private var spokenCount: [String: Int] = [:]
     /// Chosen when the flight starts, delivered when it lands. See `arrive()`.
@@ -140,6 +141,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
     func makeScene() -> SCNScene {
         auditNarrationClips()
+        audio.start()
         scene.background.contents = UIColor(red: 0.008, green: 0.012, blue: 0.039, alpha: 1)
 
         addStarfield()
@@ -453,6 +455,12 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         // which is far below the point where the drift is visible but far above every frame.
         if abs(date.timeIntervalSince(orbitsBuiltFor)) > 2 * 365 * 86400 { rebuildOrbits(for: date) }
 
+        // The music grows colder and emptier the farther out we are — driven by the world we are
+        // on, or the one we are flying toward.
+        if let body = currentBody {
+            audio.setOuterness(auFromSun: Orbits.heliocentricDistanceAU(body, at: date))
+        }
+
         let live = isLive
         if clock.date != date || clock.isLive != live { clock = Clock(date: date, isLive: live) }
         // Keep the caption's distance honest while the clock moves under it — but only once the
@@ -507,6 +515,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
     func beginScrub() {
         narrator.stop()
+        audio.setNarrating(false)
         isScrubbing = true
         scrubVelocity = 0
         ambientPaused = true
@@ -533,6 +542,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     func step(by delta: Int) {
         guard !featured.isEmpty else { return }
         narrator.stop()
+        audio.setNarrating(false)
         ambientPaused = true
         lastInteractionAt = lastFrameAt
         featuredIndex = ((featuredIndex + delta) % featured.count + featured.count) % featured.count
@@ -617,8 +627,10 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
         let lines = catalog.narration[body.name] ?? []
         let turn = (spokenCount[body.name, default: 1] - 1) % max(lines.count, 1)
+        audio.setNarrating(true)
         narrator.speak(line, clipID: "narration-\(body.name.lowercased())-\(turn)") { [weak self] in
             guard let self else { return }
+            self.audio.setNarrating(false)
             self.nextChangeAt = self.lastFrameAt + Self.pauseAfterNarration
         }
     }

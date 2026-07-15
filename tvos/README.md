@@ -158,6 +158,24 @@ had been generated before they existed. The app ran perfectly, sounded like a ro
 indication anything was wrong. `OrreryScene.auditNarrationClips()` now counts the clips at launch
 and says so, because a silent downgrade to the robot voice is indistinguishable from success.
 
+## The ambient drone
+
+There is no music file. `AmbientAudio.swift` synthesises the bed live, one sample at a time, on the
+audio thread. Same reasoning as the local voice: a fixed loop develops "oh, this bit again" fatigue
+on something you leave running, and a drone whose voices each breathe on their own slow, unrelated
+cycle never exactly repeats. It also costs nothing and needs no license.
+
+The chord is open — root, fifth, octave, a high ninth, no third. A third would commit the music to
+happy or sad; leaving it out keeps it *wondering*. An `outerness` parameter (0 at the Sun, 1 at
+Eris) fades the bright upper voices out as the journey moves outward, so the far planets sound
+hollow and cold. The bed ducks about 8 dB under narration and sits at roughly -21 dBFS peak — a
+bed, never a thing you notice on its own. Verified by rendering the DSP offline (no NaNs, safe
+levels, Eris measurably darker than the Sun) since the simulator cannot be listened to from CI.
+
+The DSP class is a plain `@unchecked Sendable` final class, not an actor: the audio thread reads
+plain-Double parameters the main thread writes, the races are benign, and every value is smoothed
+per-sample so there is no zipper noise.
+
 ## Known gaps
 - No screensaver integration yet. tvOS does not let third-party apps supply system screensavers,
   so "leave it running" is the current story. A Top Shelf extension is the closest native hook.
