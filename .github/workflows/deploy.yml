@@ -3,6 +3,14 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    # The build only consumes the web app, so a push that touches nothing but the tvOS app has
+    # no effect on the deployed site — skip it. paths-ignore skips a push only when *every*
+    # changed file matches, so any commit that also touches web files still deploys. This is the
+    # safe direction to filter: the worst case is a harmless rebuild of an identical site, never
+    # a real web change that fails to publish. Use the "Run workflow" button (workflow_dispatch)
+    # to force a deploy by hand.
+    paths-ignore:
+      - "tvos/**"
   workflow_dispatch:
 
 permissions:
