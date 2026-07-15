@@ -64,6 +64,9 @@ final class AmbientAudio: @unchecked Sendable {
 
     func start() {
         guard source == nil else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["HELIOS_MUTE"] != nil { return }
+        #endif
         let format = engine.mainMixerNode.outputFormat(forBus: 0)
 
         let node = AVAudioSourceNode { [weak self] _, _, frameCount, audioBufferList -> OSStatus in

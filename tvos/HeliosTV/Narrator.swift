@@ -38,6 +38,15 @@ final class Narrator: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelega
         stop()
         onFinish = completion
 
+        #if DEBUG
+        // Silent test runs (HELIOS_MUTE): play nothing, but still report "finished" after a beat so
+        // the ambient loop keeps advancing. Keeps the simulator quiet without muting the whole Mac.
+        if ProcessInfo.processInfo.environment["HELIOS_MUTE"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.finish() }
+            return
+        }
+        #endif
+
         let clipURL = Bundle.main.url(forResource: clipID, withExtension: "m4a", subdirectory: "Media")
             ?? Bundle.main.url(forResource: clipID, withExtension: "m4a")
         if let clipURL, let clip = try? AVAudioPlayer(contentsOf: clipURL) {

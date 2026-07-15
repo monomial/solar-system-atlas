@@ -629,14 +629,22 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     private func deepVantage(for body: Body, at target: SIMD3<Double>) -> SIMD3<Double> {
         let outward = simd_length(target) > 1 ? simd_normalize(target) : SIMD3<Double>(0, 1, 0)
         let tangent = simd_normalize(simd_cross(outward, SIMD3<Double>(0, 1, 0)))
-        let radius: Double
         if body.name == deepParent {
             let outer = (moonsByParent[body.name] ?? []).map { compactMoonRadius($0) }.max() ?? (body.radius * 3)
-            radius = max(outer * 1.9, body.radius * 6)
-        } else {
-            radius = body.radius * 7 + 2
+            let radius = max(outer * 1.9, body.radius * 6)
+            return target + tangent * radius + SIMD3(0, radius * 0.4, 0) - outward * (radius * 0.2)
         }
-        return target + tangent * radius + SIMD3(0, radius * 0.4, 0) - outward * (radius * 0.2)
+        // A moon: view it from the SIDE — perpendicular to the planet-moon line — so the planet
+        // sits off to one edge of the frame instead of filling the background, and the camera stays
+        // well clear of the planet's surface (sitting "between" them put it right up against giant
+        // Jupiter for the outer moons). The moon reads as a lit disc against mostly stars.
+        let parent = (catalog.planets + catalog.dwarfs).first { $0.name == deepParent }
+        let parentPos = parent.map { displayPosition($0, at: displayDate) } ?? .zero
+        let toMoon = simd_length(target - parentPos) > 0.001 ? simd_normalize(target - parentPos) : outward
+        var side = simd_cross(toMoon, SIMD3<Double>(0, 1, 0))
+        side = simd_length(side) > 0.001 ? simd_normalize(side) : tangent
+        let dist = body.radius * 7 + 2
+        return target + side * dist + SIMD3(0, dist * 0.4, 0)
     }
 
     private func flyToDeepTarget() {
