@@ -40,3 +40,32 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible,
 @media(max-width:380px){.brand-mark{display:none}.brand{min-width:72px}.topbar nav button{padding:0 8px}.now-button{display:none}.simulation-date{min-width:82px}.speed-picker select{min-width:78px}.info-panel{max-height:68dvh}}
 @media(max-height:560px) and (orientation:landscape){.date-chip{top:calc(66px + env(safe-area-inset-top));right:12px;transform:none}.left-tools{display:none}.planet-rail{left:10px;transform:none;width:min(58vw,560px)}.dwarf-rail,.small-body-rail{display:none}.playback-bar{left:auto;right:10px;transform:none;width:auto}.info-panel{top:calc(68px + env(safe-area-inset-top));bottom:calc(8px + env(safe-area-inset-bottom));left:auto;right:10px;width:min(390px,52vw);max-height:none;border-radius:14px}.tour-card{left:auto;right:10px;transform:none;width:min(500px,58vw);max-height:calc(100dvh - 76px);border-radius:14px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}.loading-orbit{animation:none}}
+
+/* ---- Ambient mode: a lean-back, narrated auto-tour (see app/ambient.ts) ---- */
+/* Hide every piece of the lean-forward chrome. Only the canvas and the ambient overlay remain. */
+.ambient-mode .topbar,.ambient-mode .left-tools,.ambient-mode .planet-rail,.ambient-mode .dwarf-rail,.ambient-mode .small-body-rail,.ambient-mode .playback-bar,.ambient-mode .info-panel,.ambient-mode .tour-card,.ambient-mode .footer-note{opacity:0;pointer-events:none;transition:opacity .5s ease}
+
+/* The Begin gate. Browsers block audio until a gesture, so entering the tour needs one tap. */
+.ambient-gate{position:fixed;inset:0;z-index:40;display:grid;place-items:center;background:radial-gradient(circle at 50% 40%,rgba(8,12,30,.72),rgba(2,3,10,.94));backdrop-filter:blur(3px);animation:ambient-fade .6s ease}
+.ambient-gate-inner{max-width:640px;text-align:center;padding:0 40px}
+.ambient-gate-inner strong{display:block;font-size:64px;font-weight:700;letter-spacing:.06em;color:#fff;margin-bottom:22px}
+.ambient-gate-inner p{font-size:22px;line-height:1.55;color:rgba(255,255,255,.72);margin-bottom:34px}
+.ambient-gate-inner button{font-size:22px;font-weight:600;letter-spacing:.08em;color:#0a0e1c;background:#ffd88a;border:0;border-radius:999px;padding:16px 54px;cursor:pointer;transition:transform .15s ease,background .15s ease}
+.ambient-gate-inner button:hover{transform:translateY(-2px);background:#ffe4a8}
+.ambient-gate-inner small{display:block;margin-top:26px;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.4)}
+
+/* The title card. Larger and lower-contrast-tolerant than the info panel — meant to be read from
+   across a room, the way the tvOS version is. */
+.ambient-card{position:fixed;left:6vw;bottom:8vh;z-index:38;max-width:min(52vw,860px);pointer-events:none;animation:ambient-rise .9s ease;text-shadow:0 4px 26px rgba(0,0,0,.85)}
+.ambient-card .eyebrow{font-size:clamp(13px,1.1vw,18px);letter-spacing:.28em;text-transform:uppercase;color:rgba(255,255,255,.55);margin-bottom:14px}
+.ambient-card h1{font-size:clamp(52px,7vw,116px);line-height:.98;font-weight:700;color:#fff;margin:0 0 18px}
+.ambient-card .ambient-distance{font-size:clamp(20px,2vw,32px);font-weight:500;color:#ffd88a;margin-bottom:20px;font-variant-numeric:tabular-nums}
+.ambient-card p{font-size:clamp(19px,1.8vw,30px);line-height:1.5;color:rgba(255,255,255,.82);margin:0}
+
+.ambient-chip{position:fixed;top:38px;right:44px;z-index:38;display:flex;align-items:center;gap:12px;padding:10px 22px;border-radius:999px;background:rgba(0,0,0,.42);font-size:16px;font-weight:600;letter-spacing:.18em;color:rgba(255,255,255,.85)}
+.ambient-chip i{width:10px;height:10px;border-radius:50%;background:#54d98c;box-shadow:0 0 12px #54d98c}
+.ambient-exit{position:fixed;top:34px;left:44px;z-index:39;width:52px;height:52px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.35);color:rgba(255,255,255,.7);font-size:26px;line-height:1;cursor:pointer;transition:background .15s ease,color .15s ease}
+.ambient-exit:hover{background:rgba(0,0,0,.6);color:#fff}
+
+@keyframes ambient-fade{from{opacity:0}to{opacity:1}}
+@keyframes ambient-rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}

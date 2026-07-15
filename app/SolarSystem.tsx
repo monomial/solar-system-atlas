@@ -9,6 +9,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { ALL_BODIES, DWARFS, MOONS, ORBITING_BODIES, PLANETS, SMALL_BODIES } from "./bodies";
 import type { BodyName, Planet, SmallBodyCategory } from "./bodies";
 import { deg, heliocentricDistanceAU, heliocentricPosition, orbitPath } from "./orbits";
+import { useAmbient } from "./useAmbient";
 
 type ScaleMode = "readable" | "linear" | "true";
 
@@ -144,7 +145,7 @@ function labelTexture(name: string, color: string) {
 
 export default function Home() {
   const mountRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<{ focus:(name:BodyName,close?:boolean)=>void;scale:(mode:ScaleMode)=>void;smallBodies:(category:SmallBodyCategory)=>void;date:(date:Date)=>void;previewDate:(date:Date)=>void }|null>(null);
+  const apiRef = useRef<{ focus:(name:BodyName,close?:boolean)=>void;scale:(mode:ScaleMode)=>void;smallBodies:(category:SmallBodyCategory)=>void;date:(date:Date)=>void;previewDate:(date:Date)=>void;flyTo:(name:BodyName,onArrive:()=>void)=>void;setAmbient:(on:boolean)=>void }|null>(null);
   const [selected, setSelected] = useState<BodyName | null>("Earth");
   const [tourIndex, setTourIndex] = useState<number | null>(null);
   const [scaleMode, setScaleMode] = useState<ScaleMode>("readable");
@@ -155,6 +156,7 @@ export default function Home() {
   const selectedDate=useMemo(()=>dateForMap(mapDate),[mapDate]);const isToday=mapDate===today;
   const [isPlaying,setIsPlaying]=useState(false);const [playbackRate,setPlaybackRate]=useState(30);const [playbackDirection,setPlaybackDirection]=useState<1|-1>(1);const simulationDateRef=useRef(selectedDate);
   const selectedBody = useMemo(() => ALL_BODIES.find(p => p.name === selected), [selected]);
+  const ambient = useAmbient(() => apiRef.current);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -169,7 +171,7 @@ export default function Home() {
       renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", logarithmicDepthBuffer:true });
     } catch {
       mount.classList.add("no-webgl");
-      apiRef.current = { focus:(name)=>setSelected(name),scale:()=>setSelected(null),smallBodies:()=>undefined,date:()=>undefined,previewDate:()=>undefined };
+      apiRef.current = { focus:(name)=>setSelected(name),scale:()=>setSelected(null),smallBodies:()=>undefined,date:()=>undefined,previewDate:()=>undefined,flyTo:(name,onArrive)=>{setSelected(name);onArrive();},setAmbient:()=>undefined };
       window.setTimeout(() => setReady(true), 0);
       return () => { apiRef.current = null; };
     }
@@ -342,6 +344,9 @@ export default function Home() {
     const raycaster = new THREE.Raycaster(); const pointer = new THREE.Vector2();
     const fly = { active:false, start:0, duration:1600, from:new THREE.Vector3(), to:new THREE.Vector3(), targetFrom:new THREE.Vector3(), targetTo:new THREE.Vector3() };
     let lastFocused:BodyName|null="Earth";let viewingFullSystem=false;
+    // Ambient mode: the outward auto-tour drives the camera through flyTo and needs to know when
+    // each flight lands, so it can speak on arrival. Kept inside the mount-once effect per CLAUDE.md.
+    let ambientActive=false; let ambientArrival:(()=>void)|null=null;
     function focus(name: BodyName, close = true) {
       const body = bodies.get(name) ?? regionTargets.get(name); if (!body) return;
       lastFocused=name;viewingFullSystem=false;
@@ -351,14 +356,14 @@ export default function Home() {
       const definition=ALL_BODIES.find(p=>p.name===name),isMoon=Boolean(definition?.moon);
       const displayScale=definition?bodyDisplayScale(definition,activeScaleMode):1;
       const world = new THREE.Vector3(); body.getWorldPosition(world); const radius = (definition?.radius ?? 4)*displayScale;
-      fly.active=true; fly.start=performance.now(); fly.duration=close ? 1700 : 2200; fly.from.copy(camera.position); fly.targetFrom.copy(controls.target); fly.targetTo.copy(world);
+      fly.active=true; fly.start=performance.now(); fly.duration=ambientActive?4200:(close ? 1700 : 2200); fly.from.copy(camera.position); fly.targetFrom.copy(controls.target); fly.targetTo.copy(world);
       const viewDir = camera.position.clone().sub(controls.target).normalize(); if (viewDir.lengthSq()<.1) viewDir.set(.6,.35,1);
       const regionDistance=name==="Asteroid Belt"?48:name==="Kuiper Belt"?82:0;
       const closeMinimum=activeScaleMode==="true"
         ? (name==="Sun" ? .12 : (isMoon||Boolean(definition?.category) ? .00008 : .0003))
         : isMoon ? (activeScaleMode==="linear"?1.5:2.8) : name==="Sun" ? (activeScaleMode==="linear"?4.5:28) : (activeScaleMode==="linear"?3.2:9);
       const familyRadius=Math.max(0,...MOONS.filter(moon=>moon.moon!.parent===name).map(moon=>moonOrbitRadius(moon,activeScaleMode)));
-      const dist = close ? Math.max(radius*4.2,familyRadius*1.45,regionDistance || closeMinimum) : 74; fly.to.copy(world).add(viewDir.multiplyScalar(dist)).add(new THREE.Vector3(0,radius*.55,0));
+      const dist = close ? Math.max(radius*(ambientActive?6:4.2),familyRadius*1.45,regionDistance || closeMinimum) : 74; fly.to.copy(world).add(viewDir.multiplyScalar(dist)).add(new THREE.Vector3(0,radius*(ambientActive?.85:.55),0));
       controls.enabled=false;
     }
     function rebuildScale(mode: ScaleMode) {
@@ -395,7 +400,9 @@ export default function Home() {
       }
       if(!viewingFullSystem&&lastFocused)focus(lastFocused,true);
     }
-    apiRef.current={focus,scale:rebuildScale,smallBodies:setSmallBodies,date:updateDate,previewDate:date=>positionBodies(date,true)};
+    apiRef.current={focus,scale:rebuildScale,smallBodies:setSmallBodies,date:updateDate,previewDate:date=>positionBodies(date,true),
+      flyTo:(name,onArrive)=>{ambientArrival=onArrive;focus(name,true);},
+      setAmbient:(on)=>{ambientActive=on;controls.enabled=!on;if(!on)ambientArrival=null;}};
 
     const tapStart={x:0,y:0,time:0,moved:false};
     function onPointerDown(e:PointerEvent){tapStart.x=e.clientX;tapStart.y=e.clientY;tapStart.time=performance.now();tapStart.moved=false;}
@@ -430,7 +437,7 @@ export default function Home() {
       }
     }
     function animate(now:number){ frame=requestAnimationFrame(animate); controls.update(); starField.rotation.y+=.000035; dustBelt.rotation.y-=.00018; kuiperBelt.rotation.y-=.000035; sun.rotation.y+=.0012; for(const p of ORBITING_BODIES){ const m=bodies.get(p.name)!; m.rotation.y+=p.name==="Jupiter"?.0022:.001; }for(const moon of MOONS)bodies.get(moon.name)!.rotation.y+=.0015;
-      if(fly.active){ const t=Math.min(1,(now-fly.start)/fly.duration); const eased=t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; camera.position.lerpVectors(fly.from,fly.to,eased); controls.target.lerpVectors(fly.targetFrom,fly.targetTo,eased); if(t>=1){fly.active=false;controls.enabled=true;} }
+      if(fly.active){ const t=Math.min(1,(now-fly.start)/fly.duration); const eased=t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; camera.position.lerpVectors(fly.from,fly.to,eased); controls.target.lerpVectors(fly.targetFrom,fly.targetTo,eased); if(t>=1){fly.active=false;controls.enabled=!ambientActive;const arrived=ambientArrival;ambientArrival=null;arrived?.();} }
       placeLabelsInScreenSpace();const span=camera.position.distanceTo(controls.target),nextDistanceLabel=span<16?"Planetary view":span<55?"Local neighborhood":span<140?"Inner system":span<260?"30 AU span":"Deep system";if(nextDistanceLabel!==lastDistanceLabel){lastDistanceLabel=nextDistanceLabel;setDistanceLabel(nextDistanceLabel);}composer.render(); }
     const loadFallback=window.setTimeout(()=>setReady(true),5000);
     textureManager.onLoad=()=>{window.clearTimeout(loadFallback);setReady(true);};
@@ -500,7 +507,7 @@ export default function Home() {
   const visibleSmallBodies=SMALL_BODIES.filter(body=>smallBodyCategory==="all"||body.category===smallBodyCategory);
 
   return (
-    <main className={`atlas-shell ${selectedBody&&tourIndex===null?"panel-open":""} ${tourIndex!==null?"tour-open":""} ${smallBodyCategory!=="off"?"small-bodies-open":""}`}>
+    <main className={`atlas-shell ${selectedBody&&tourIndex===null?"panel-open":""} ${tourIndex!==null?"tour-open":""} ${smallBodyCategory!=="off"?"small-bodies-open":""} ${ambient.phase!=="off"?"ambient-mode":""}`}>
       <div ref={mountRef} className="space-stage" aria-label="Interactive 3D model of the solar system">
         <div className="fallback-space" aria-hidden="true">
           <div className="fallback-stars"/>
@@ -513,6 +520,26 @@ export default function Home() {
         </div>
       </div>
       <div className={`loading-veil ${ready ? "is-ready" : ""}`}><div className="loading-orbit"/><span>Plotting the solar system</span></div>
+
+      {ambient.phase==="gate" && <div className="ambient-gate">
+        <div className="ambient-gate-inner">
+          <strong>HELIOS</strong>
+          <p>A quiet tour of the solar system, from the Sun to the far edge — where the planets really are, right now, read aloud.</p>
+          <button onClick={ambient.begin}>Begin</button>
+          <small>Press Esc to leave at any time.</small>
+        </div>
+      </div>}
+
+      {ambient.phase==="playing" && <>
+        <div className="ambient-chip"><i/>LIVE</div>
+        <button className="ambient-exit" onClick={ambient.exit} aria-label="Leave ambient mode">×</button>
+        {ambient.caption && <div className="ambient-card" key={ambient.caption.name} aria-live="polite">
+          <div className="eyebrow">{ambient.caption.kind}</div>
+          <h1>{ambient.caption.name}</h1>
+          <div className="ambient-distance">{ambient.caption.distance}</div>
+          <p>{ambient.caption.line}</p>
+        </div>}
+      </>}
       <header className="topbar">
         <button className="brand" onClick={()=>{setTourIndex(null);apiRef.current?.scale(scaleMode)}} aria-label="Return to full solar system">
           <span className="brand-mark"><i/><i/><b/></span><span><strong>HELIOS</strong><small>Solar system atlas</small></span>
@@ -520,6 +547,7 @@ export default function Home() {
         <nav aria-label="Main controls">
           <button className={tourIndex===null?"active":""} onClick={()=>setTourIndex(null)}>Explore</button>
           <button className={tourIndex!==null?"active":""} onClick={beginTour}><span className="play">▶</span> Guided tour</button>
+          <button onClick={ambient.enter}>Ambient</button>
         </nav>
         <div className="date-chip">
           <span className={`date-status ${isToday?"live":""} ${isPlaying?"playing":""}`}><i/>{isPlaying?"PLAYING":isToday?"LIVE":"DATE"}</span>

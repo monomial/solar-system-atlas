@@ -28,6 +28,7 @@ const run = promisify(execFile);
 
 const CACHE = fileURLToPath(new URL("../.narration-cache/", import.meta.url));
 const RESOURCES = fileURLToPath(new URL("../tvos/HeliosTV/Media/", import.meta.url));
+const WEB_NARRATION = fileURLToPath(new URL("../public/narration/", import.meta.url));
 const MANIFEST = `${CACHE}manifest.json`;
 
 // How the line should be *read*, not what it says. gpt-4o-mini-tts takes direction, which is most
@@ -204,6 +205,12 @@ if (stale.length && provider.batch) {
 await writeFile(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
 
 const clips = (await readdir(CACHE)).filter((file) => file.endsWith(".m4a"));
-for (const clip of clips) await copyFile(`${CACHE}${clip}`, `${RESOURCES}${clip}`);
+// The tvOS bundle and the web app both consume the same rendered clips. The web copy is committed
+// to the repo because GitHub Pages cannot run Kokoro to regenerate it at deploy time.
+await mkdir(WEB_NARRATION, { recursive: true });
+for (const clip of clips) {
+  await copyFile(`${CACHE}${clip}`, `${RESOURCES}${clip}`);
+  await copyFile(`${CACHE}${clip}`, `${WEB_NARRATION}${clip}`);
+}
 
 console.log(`\nnarration → ${clips.length} clips in the bundle (${rendered} rendered, ${cached} cached)`);
