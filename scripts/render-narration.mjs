@@ -124,10 +124,30 @@ if (!provider) { console.error(`Unknown TTS_PROVIDER "${providerName}".`); proce
 const key = await provider.key();
 const model = process.env.TTS_MODEL ?? provider.model;
 
-/** Every line, paired with the stable clip id the app looks for in the bundle. */
+// Respellings applied ONLY to what the TTS is handed, never to what the apps display. These
+// names don't follow English letter-to-sound rules, so espeak-ng (which Kokoro phonemises
+// through) mangles them: Makemake as the English word "make" twice, Haumea as "HAW-mee-ah",
+// Charon with a church "ch", Kuiper as "kew-EE-per". Each respelling was chosen by checking its
+// espeak phonemes against the correct pronunciation — verifiable without hearing the audio:
+//   Makemake /mˈɑːkeɪmˈɑːkeɪ/  Haumea /hˈaʊmeɪə/  Charon /kˈeəɹɒn/  Kuiper /kˈaɪpə/
+// The caption on screen still reads Makemake, Haumea, Charon, Kuiper.
+const PRONUNCIATIONS = {
+  Makemake: "Mahkay mahkay",
+  Haumea: "Howmayah",
+  Charon: "Care-on",
+  Kuiper: "Kyper",
+};
+function forSpeech(text) {
+  let out = text;
+  for (const [name, said] of Object.entries(PRONUNCIATIONS)) out = out.replace(new RegExp(`\\b${name}\\b`, "gi"), said);
+  return out;
+}
+
+/** Every line, paired with the stable clip id the app looks for in the bundle. The text is the
+ *  spoken form (pronunciation-corrected); the clip id and the on-screen caption are unaffected. */
 const lines = () =>
   Object.entries(NARRATION).flatMap(([body, spoken]) =>
-    spoken.map((text, index) => ({ id: `narration-${body.toLowerCase()}-${index}`, body, text })),
+    spoken.map((text, index) => ({ id: `narration-${body.toLowerCase()}-${index}`, body, text: forSpeech(text) })),
   );
 
 const hash = (text, voice) =>
