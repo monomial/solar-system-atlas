@@ -14,6 +14,37 @@ export type AmbientApi = {
 
 type Phase = "off" | "gate" | "playing";
 
+// A shuffle bag per body: hand out every fact once, in random order, before any repeats, then
+// reshuffle. Better than picking purely at random each time — pure random can replay one fact
+// while another goes unheard for ages, and for a child you want him to eventually hear them all.
+// Also cheaper on the ear: no fact lands twice in a row, even across a reshuffle.
+class ShuffleBag {
+  private bags = new Map<BodyName, number[]>();
+  private last = new Map<BodyName, number>();
+
+  next(name: BodyName): number {
+    const count = NARRATION[name]?.length ?? 1;
+    if (count <= 1) return 0;
+
+    let bag = this.bags.get(name);
+    if (!bag || bag.length === 0) {
+      bag = [...Array(count).keys()];
+      for (let i = bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bag[i], bag[j]] = [bag[j], bag[i]];
+      }
+      // Don't let the reshuffle repeat the fact we just finished on.
+      const last = this.last.get(name);
+      if (last !== undefined && bag[0] === last && bag.length > 1) [bag[0], bag[1]] = [bag[1], bag[0]];
+      this.bags.set(name, bag);
+    }
+
+    const index = bag.shift()!;
+    this.last.set(name, index);
+    return index;
+  }
+}
+
 /** Drives the outward auto-tour: fly to a world, arrive, speak, hold, advance. Everything the
  *  loop owns is cancellable, because the user can leave at any moment. */
 export function useAmbient(api: () => AmbientApi | null) {
@@ -21,7 +52,7 @@ export function useAmbient(api: () => AmbientApi | null) {
   const [caption, setCaption] = useState<Caption | null>(null);
 
   const drone = useRef<Drone | null>(null);
-  const spoken = useRef<Map<BodyName, number>>(new Map());
+  const bag = useRef(new ShuffleBag());
   const stopSpeaking = useRef<(() => void) | null>(null);
   const timer = useRef<number | null>(null);
   // A token invalidated on every exit, so an async arrival from an abandoned run cannot resurrect
@@ -45,9 +76,7 @@ export function useAmbient(api: () => AmbientApi | null) {
     apiHandle.flyTo(name, () => {
       if (token !== run.current) return; // arrived after the user left — drop it
 
-      const turn = spoken.current.get(name) ?? 0;
-      spoken.current.set(name, turn + 1);
-      const lineIndex = turn % (NARRATION[name]?.length ?? 1);
+      const lineIndex = bag.current.next(name);
 
       const card = captionFor(name, lineIndex);
       setCaption(card);
