@@ -109,8 +109,28 @@ private struct TitleCard: View {
                 .foregroundStyle(.white.opacity(0.78))
                 .lineSpacing(6)
                 .frame(maxWidth: 900, alignment: .leading)
+
+            // Stats appear only in a deep-dive, where the viewer has stopped to study one world.
+            if caption.width != nil || caption.day != nil || caption.year != nil {
+                HStack(spacing: 40) {
+                    stat("WIDTH", caption.width)
+                    stat("ONE DAY", caption.day)
+                    stat(caption.isMoon ? "ONE ORBIT" : "ONE YEAR", caption.year)
+                }
+                .padding(.top, 8)
+            }
         }
         .shadow(color: .black.opacity(0.85), radius: 18, y: 6)
+    }
+
+    @ViewBuilder
+    private func stat(_ label: String, _ value: String?) -> some View {
+        if let value {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label).font(.system(size: 16, weight: .semibold)).tracking(2).foregroundStyle(.white.opacity(0.45))
+                Text(value).font(.system(size: 22, weight: .medium)).foregroundStyle(.white.opacity(0.85))
+            }
+        }
     }
 }
 
@@ -136,9 +156,10 @@ private struct OrreryView: UIViewRepresentable {
     func updateUIView(_ view: SCNView, context: Context) {}
 
     @MainActor
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         private let orrery: OrreryScene
         private var anchor: TimeInterval = 0
+        private weak var menuRecognizer: UIGestureRecognizer?
 
         init(orrery: OrreryScene) { self.orrery = orrery }
 
@@ -152,14 +173,30 @@ private struct OrreryView: UIViewRepresentable {
             // one input mean two things is how a remote starts feeling haunted.
             addPress(.leftArrow, #selector(handleLeft), to: view)
             addPress(.rightArrow, #selector(handleRight), to: view)
+            // Up / Down walk a world's moon family while deep-diving.
+            addPress(.upArrow, #selector(handleUp), to: view)
+            addPress(.downArrow, #selector(handleDown), to: view)
+            // Select drops into a deep-dive on the focused world; Menu / Back climbs back out.
             addPress(.select, #selector(handleSelect), to: view)
+            let menu = addPress(.menu, #selector(handleMenu), to: view)
+            menu.delegate = self
+            menuRecognizer = menu
             addPress(.playPause, #selector(handlePlayPause), to: view)
         }
 
-        private func addPress(_ type: UIPress.PressType, _ action: Selector, to view: UIView) {
+        @discardableResult
+        private func addPress(_ type: UIPress.PressType, _ action: Selector, to view: UIView) -> UITapGestureRecognizer {
             let recognizer = UITapGestureRecognizer(target: self, action: action)
             recognizer.allowedPressTypes = [NSNumber(value: type.rawValue)]
             view.addGestureRecognizer(recognizer)
+            return recognizer
+        }
+
+        // Only swallow Menu while a deep-dive is open — there it means "back out". At the top level
+        // it passes through untouched, so the system's usual "Menu exits the app" still works and
+        // the viewer is never trapped.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive press: UIPress) -> Bool {
+            gestureRecognizer !== menuRecognizer || orrery.inDeepDive
         }
 
         @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
@@ -179,7 +216,10 @@ private struct OrreryView: UIViewRepresentable {
 
         @objc private func handleLeft() { orrery.step(by: -1) }
         @objc private func handleRight() { orrery.step(by: 1) }
-        @objc private func handleSelect() { orrery.toggleAmbient() }
+        @objc private func handleUp() { orrery.deepStep(by: -1) }
+        @objc private func handleDown() { orrery.deepStep(by: 1) }
+        @objc private func handleSelect() { orrery.enterDeepDive() }
+        @objc private func handleMenu() { orrery.exitDeepDive() }
         @objc private func handlePlayPause() { orrery.returnToNow() }
     }
 }

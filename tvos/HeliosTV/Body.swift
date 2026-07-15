@@ -21,6 +21,18 @@ struct Body: Decodable {
         let meanMotion: Double
     }
 
+    /// A moon's orbit around its parent. These are display-only approximations — a circular orbit
+    /// from a stored phase, at deliberately compressed spacing — exactly as the web atlas does it,
+    /// so a moon stays visible next to its planet instead of vanishing at true scale.
+    struct MoonOrbit: Decodable {
+        let parent: String
+        let orbitKm: Double
+        let periodDays: Double
+        let inclination: Double
+        let phase: Double
+        let retrograde: Bool?
+    }
+
     let name: String
     let kind: String
     let color: String
@@ -33,6 +45,7 @@ struct Body: Decodable {
     let fact: String
     let elements: Elements?
     let smallBody: SmallBody?
+    let moon: MoonOrbit?
 }
 
 struct Catalog: Decodable {

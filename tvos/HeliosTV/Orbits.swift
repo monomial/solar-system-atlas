@@ -13,7 +13,8 @@ enum Orbits {
     static func deg(_ v: Double) -> Double { v * .pi / 180 }
     static func norm(_ v: Double) -> Double { (v.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360) }
 
-    private static let j2000 = Date(timeIntervalSince1970: 946_728_000)  // 2000-01-01T12:00:00Z
+    /// J2000 epoch, 2000-01-01T12:00:00Z. Used by the planet math and by the moons' phase clock.
+    static let j2000 = Date(timeIntervalSince1970: 946_728_000)
     private static let jdAtUnixEpoch = 2_440_587.5
 
     /// `(a, e, inclination, meanAnomaly, node, argOfPerihelion)` — a in AU, angles in degrees.

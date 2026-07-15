@@ -68,9 +68,10 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     /// but full coverage, so a child eventually hears all of them rather than the same few.
     private var factBags: [String: [Int]] = [:]
     private var lastFact: [String: Int] = [:]
-    /// Chosen when the flight starts, delivered on arrival. The index travels with the text so the
-    /// spoken clip and the shown card can never drift apart.
-    private var pendingLine: (text: String, index: Int)?
+    /// Chosen when the flight starts, delivered on arrival. The body and index travel with the text
+    /// so the spoken clip and the shown card can never drift apart — and so a deep-dive can speak a
+    /// moon rather than whatever world the ambient tour last touched.
+    private var pendingLine: (text: String, index: Int, body: Body)?
     /// Silence after a line finishes, before the camera moves on. Long enough for it to land.
     private static let pauseAfterNarration: TimeInterval = 4.5
     /// Ceiling in case narration never reports finishing — the loop must never wedge.
@@ -86,6 +87,11 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         let kind: String
         let distance: String
         let fact: String
+        // Populated only in a deep-dive, where there's time to read stats off the card.
+        var width: String? = nil
+        var day: String? = nil
+        var year: String? = nil
+        var isMoon: Bool = false
     }
 
     struct Clock: Equatable {
@@ -153,6 +159,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         addSun()
         addOrbits()
         addPlanets()
+        addMoons()
         addCamera()
 
         featured = tour.compactMap { name in
@@ -293,6 +300,74 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         material.writesToDepthBuffer = false
 
         return SCNNode(geometry: geometry)
+    }
+
+    // MARK: - Moons
+    //
+    // Moons exist only for the deep-dive, and only their parent's family is ever visible at once.
+    // Their spacing is deliberately compressed, not physical — at true scale a moon would be an
+    // invisible speck hard against its planet — exactly as the web atlas does it (see CLAUDE.md).
+    // A per-parent group tracks the planet's position but NOT its spin, so the moons orbit cleanly
+    // instead of being flung around by the planet's axial rotation.
+    private var moonsByParent: [String: [Body]] = [:]
+    private var moonNodes: [String: SCNNode] = [:]
+    private var moonGroups: [String: SCNNode] = [:]
+
+    private func addMoons() {
+        moonsByParent = Dictionary(grouping: catalog.moons) { $0.moon?.parent ?? "" }
+
+        for (parent, moons) in moonsByParent {
+            let group = SCNNode()
+            group.isHidden = true
+            scene.rootNode.addChildNode(group)
+            moonGroups[parent] = group
+
+            for moon in moons {
+                let geometry = SCNSphere(radius: CGFloat(moon.radius))
+                geometry.segmentCount = 28
+                let material = geometry.firstMaterial!
+                material.lightingModel = .physicallyBased
+                // Only Earth's Moon has a real map; the rest are honest colour approximations.
+                material.diffuse.contents = texture(for: moon) ?? UIColor(hex: moon.color)
+                material.roughness.contents = 0.95
+                material.emission.contents = UIColor(hex: moon.color)
+                material.emission.intensity = 0.05  // a touch of self-light so far-out moons still read
+
+                let node = SCNNode(geometry: geometry)
+                node.name = moon.name
+                node.runAction(.repeatForever(.rotate(by: .pi * 2, around: SCNVector3(0, 1, 0), duration: 30)))
+                group.addChildNode(node)
+                moonNodes[moon.name] = node
+            }
+        }
+    }
+
+    /// Compressed orbit radius: pushes each moon out from the planet's surface by a fixed step, so
+    /// a whole family is legible at once. Same formula as the web atlas's compactMoonOrbitRadius.
+    private func compactMoonRadius(_ moon: Body) -> Double {
+        guard let parent = catalog.planets.first(where: { $0.name == moon.moon?.parent })
+            ?? catalog.dwarfs.first(where: { $0.name == moon.moon?.parent }) else { return moon.radius * 3 }
+        let family = moonsByParent[moon.moon!.parent] ?? []
+        let index = family.firstIndex { $0.name == moon.name } ?? 0
+        let largest = family.map(\.radius).max() ?? moon.radius
+        let inner = parent.radius + largest + 0.7
+        let spacing = max(0.7, largest * 1.45)
+        return inner + Double(index) * spacing
+    }
+
+    /// A moon's offset from its parent's centre: a circular orbit read off a stored phase, tilted
+    /// by the moon's inclination. Display-only — never a solved ellipse.
+    private func moonLocalPosition(_ moon: Body, at date: Date) -> SIMD3<Double> {
+        let data = moon.moon!
+        let turns = date.timeIntervalSince(Orbits.j2000) / 86400 / data.periodDays
+        let angle = 2 * .pi * (data.phase + ((data.retrograde ?? false) ? -turns : turns))
+        let tilt = Orbits.deg(data.inclination), r = compactMoonRadius(moon)
+        return SIMD3(cos(angle) * r, sin(angle) * r * sin(tilt), sin(angle) * r * cos(tilt))
+    }
+
+    /// Show only this parent's moon family (nil hides all). Called on entering/leaving a deep-dive.
+    private func showMoonFamily(_ parent: String?) {
+        for (name, group) in moonGroups { group.isHidden = (name != parent) }
     }
 
     private func addOrbits() {
@@ -456,6 +531,14 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
             bodyNodes[body.name]?.simdPosition = SIMD3<Float>(displayPosition(body, at: date))
         }
 
+        // Only the visible family moves — the rest are hidden, so positioning them would be waste.
+        if let parent = deepParent, let group = moonGroups[parent], !group.isHidden {
+            group.simdPosition = bodyNodes[parent]?.simdPosition ?? group.simdPosition
+            for moon in moonsByParent[parent] ?? [] {
+                moonNodes[moon.name]?.simdPosition = SIMD3<Float>(moonLocalPosition(moon, at: date))
+            }
+        }
+
         // The ellipses precess. Redraw them only once the scrub has moved a couple of years,
         // which is far below the point where the drift is visible but far above every frame.
         if abs(date.timeIntervalSince(orbitsBuiltFor)) > 2 * 365 * 86400 { rebuildOrbits(for: date) }
@@ -472,6 +555,14 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         // card is actually up. Mid-flight there is deliberately no card to refresh.
         if caption != nil, let body = currentBody, !live || isScrubbing {
             caption = makeCaption(for: body, at: date)
+        }
+
+        // In a deep-dive the tour is paused, but the family still auto-walks: planet, then each
+        // moon, then round again — so a world left on screen slowly shows you its whole system.
+        if inDeepDive {
+            guard !isScrubbing, flight == nil, time >= nextChangeAt else { return }
+            deepStep(by: 1)
+            return
         }
 
         // Never start a new move while still flying, or the camera would jump mid-arc.
@@ -516,6 +607,45 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         featured.indices.contains(featuredIndex) ? featured[featuredIndex] : nil
     }
 
+    // MARK: - Deep-dive
+    //
+    // Select on a world stops the outward tour and drops into that world's *system* — the planet
+    // and each of its moons in turn, with expanded stats. It auto-walks the family; Up/Down step it
+    // by hand; Menu leaves. `deepParent` is the anchor (nil = ambient tour is running).
+    private var deepParent: String?
+    private var deepFamily: [Body] = []
+    private var deepIndex = 0
+    var inDeepDive: Bool { deepParent != nil }
+
+    /// Whole-family overview position for the planet; parent-centre-plus-offset for a moon.
+    private func deepTargetPosition(_ body: Body, at date: Date) -> SIMD3<Double> {
+        guard body.name != deepParent else { return displayPosition(body, at: date) }
+        let parentName = body.moon?.parent ?? deepParent ?? ""
+        let parent = (catalog.planets + catalog.dwarfs).first { $0.name == parentName }
+        return (parent.map { displayPosition($0, at: date) } ?? .zero) + moonLocalPosition(body, at: date)
+    }
+
+    /// Wide enough to hold the whole moon family when looking at the planet; close on a single moon.
+    private func deepVantage(for body: Body, at target: SIMD3<Double>) -> SIMD3<Double> {
+        let outward = simd_length(target) > 1 ? simd_normalize(target) : SIMD3<Double>(0, 1, 0)
+        let tangent = simd_normalize(simd_cross(outward, SIMD3<Double>(0, 1, 0)))
+        let radius: Double
+        if body.name == deepParent {
+            let outer = (moonsByParent[body.name] ?? []).map { compactMoonRadius($0) }.max() ?? (body.radius * 3)
+            radius = max(outer * 1.9, body.radius * 6)
+        } else {
+            radius = body.radius * 7 + 2
+        }
+        return target + tangent * radius + SIMD3(0, radius * 0.4, 0) - outward * (radius * 0.2)
+    }
+
+    private func flyToDeepTarget() {
+        guard deepFamily.indices.contains(deepIndex) else { return }
+        let body = deepFamily[deepIndex], date = displayDate
+        let target = deepTargetPosition(body, at: date)
+        flyTo(body: body, target: target, vantage: deepVantage(for: body, at: target))
+    }
+
     // MARK: - Input
 
     func beginScrub() {
@@ -543,9 +673,11 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
     var scrubAnchor: TimeInterval { timeOffset }
 
-    /// Discrete input for a discrete target: step the camera to the next or previous world.
+    /// Left / Right step between worlds. If a deep-dive is open it closes first, so the arrows
+    /// always mean the same thing: move through the solar system.
     func step(by delta: Int) {
         guard !featured.isEmpty else { return }
+        if inDeepDive { showMoonFamily(nil); deepParent = nil; deepFamily = [] }
         narrator.stop()
         audio.setNarrating(false)
         ambientPaused = true
@@ -554,11 +686,48 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         flyToCurrent(at: displayDate)
     }
 
-    /// Select toggles the ambient drift, so you can hold on a world and just look at it.
-    func toggleAmbient() {
-        ambientPaused.toggle()
+    /// Select drops into a deep-dive on the world in focus: its moons appear and the camera pulls
+    /// back to hold the whole system, then walks the family reading each one's fact.
+    func enterDeepDive() {
+        guard !inDeepDive, let body = currentBody else { return }
+        narrator.stop()
+        audio.setNarrating(false)
+        ambientPaused = true
+        deepParent = body.name
+        deepFamily = [body] + (moonsByParent[body.name] ?? [])
+        deepIndex = 0
+        showMoonFamily(body.name)
+        // Position the family this instant so the first flight aims true, not a frame stale.
+        if let group = moonGroups[body.name] {
+            group.simdPosition = bodyNodes[body.name]?.simdPosition ?? group.simdPosition
+            for moon in deepFamily.dropFirst() { moonNodes[moon.name]?.simdPosition = SIMD3<Float>(moonLocalPosition(moon, at: displayDate)) }
+        }
+        lastInteractionAt = lastFrameAt
+        flyToDeepTarget()
+    }
+
+    /// Menu / Back leaves the deep-dive and resumes the ambient tour where it left off.
+    func exitDeepDive() {
+        guard inDeepDive else { return }
+        narrator.stop()
+        audio.setNarrating(false)
+        showMoonFamily(nil)
+        deepParent = nil
+        deepFamily = []
+        ambientPaused = false
         lastInteractionAt = lastFrameAt
         nextChangeAt = lastFrameAt + resumeHold
+        flyToCurrent(at: displayDate)
+    }
+
+    /// Up / Down walk the family — planet, then each moon — by hand.
+    func deepStep(by delta: Int) {
+        guard inDeepDive, !deepFamily.isEmpty else { return }
+        narrator.stop()
+        audio.setNarrating(false)
+        deepIndex = ((deepIndex + delta) % deepFamily.count + deepFamily.count) % deepFamily.count
+        lastInteractionAt = lastFrameAt
+        flyToDeepTarget()
     }
 
     /// Play/Pause snaps the clock back to the present without waiting out the idle timer.
@@ -581,9 +750,13 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
     private func flyToCurrent(at date: Date) {
         guard let body = currentBody, let node = bodyNodes[body.name] else { return }
+        flyTo(body: body, target: SIMD3<Double>(node.simdPosition), vantage: vantagePoint(for: body, at: SIMD3<Double>(node.simdPosition)))
+    }
 
-        let target = SIMD3<Double>(node.simdPosition)
-        let vantage = vantagePoint(for: body, at: target)
+    /// Sets up a camera flight to a body and queues its narration for arrival. Shared by the
+    /// ambient tour and the deep-dive so both bow the path, ease the aim, and speak-on-arrival
+    /// identically.
+    private func flyTo(body: Body, target: SIMD3<Double>, vantage: SIMD3<Double>) {
         let from = SIMD3<Double>(cameraNode.simdPosition)
         let travel = simd_distance(from, vantage)
 
@@ -604,7 +777,8 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         // Pick the line now, but do not say it yet — it is delivered on arrival. Talking about a
         // world the camera is still travelling towards means the words land on the wrong picture:
         // you hear about Saturn's rings while still looking at Jupiter. Fly first, then speak.
-        pendingLine = nextLine(for: body)
+        let (text, index) = nextLine(for: body)
+        pendingLine = (text: text, index: index, body: body)
 
         // The card goes with the voice, so it fades out for the journey and returns on arrival.
         // Leaving it up would park text on screen that nothing is reading.
@@ -633,13 +807,13 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
     /// The camera has landed. Now show the card and say the words, together, as one beat.
     private func arrive() {
-        guard let body = currentBody, let pending = pendingLine else { return }
+        guard let pending = pendingLine else { return }
         pendingLine = nil
 
-        caption = makeCaption(for: body, at: displayDate, line: pending.text)
+        caption = makeCaption(for: pending.body, at: displayDate, line: pending.text, detailed: inDeepDive)
 
         audio.setNarrating(true)
-        narrator.speak(pending.text, clipID: "narration-\(body.name.lowercased())-\(pending.index)") { [weak self] in
+        narrator.speak(pending.text, clipID: "narration-\(pending.body.name.lowercased())-\(pending.index)") { [weak self] in
             guard let self else { return }
             self.audio.setNarrating(false)
             self.nextChangeAt = self.lastFrameAt + Self.pauseAfterNarration
@@ -679,17 +853,34 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
     /// The card shows the words that are being spoken, so a reading adult can follow along with a
     /// child who cannot. Same sentence, two ways in.
-    private func makeCaption(for body: Body, at date: Date, line: String? = nil) -> Caption {
-        let au = Orbits.heliocentricDistanceAU(body, at: date)
+    private func makeCaption(for body: Body, at date: Date, line: String? = nil, detailed: Bool = false) -> Caption {
         let when = isLive ? "right now" : "on \(Self.captionDate.string(from: date))"
-        return Caption(
-            name: body.name.uppercased(),
-            kind: body.kind,
-            distance: body.name == "Sun"
-                ? "The centre of everything"
-                : String(format: au < 2 ? "%.3f AU from the Sun, %@" : "%.2f AU from the Sun, %@", au, when),
-            fact: line ?? caption?.fact ?? body.fact
-        )
+        // A moon's "distance" is from its planet; everything else is from the Sun.
+        let distance: String
+        if let orbit = body.moon {
+            distance = "\(Self.grouped(orbit.orbitKm)) km from \(orbit.parent)"
+        } else if body.name == "Sun" {
+            distance = "The centre of everything"
+        } else {
+            let au = Orbits.heliocentricDistanceAU(body, at: date)
+            distance = String(format: au < 2 ? "%.3f AU from the Sun, %@" : "%.2f AU from the Sun, %@", au, when)
+        }
+
+        var caption = Caption(name: body.name.uppercased(), kind: body.kind, distance: distance,
+                              fact: line ?? self.caption?.fact ?? body.fact, isMoon: body.moon != nil)
+        if detailed {
+            caption.width = "\(Self.grouped(body.radiusKm * 2)) km across"
+            caption.day = body.day
+            caption.year = body.year
+        }
+        return caption
+    }
+
+    private static func grouped(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: value)) ?? String(Int(value))
     }
 
     private static let captionDate: DateFormatter = {

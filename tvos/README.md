@@ -9,6 +9,24 @@ by a trackpad remote, and watched rather than operated. So the interaction model
 away and the content is kept: one world, one number, one fact, in type you can read from a
 sofa. There is no input. It is meant to be left running.
 
+## Controls
+
+The Siri Remote drives a small explorer:
+
+- **Trackpad drag** — scrub time; the planets wheel around the Sun, and a flick coasts.
+- **Left / Right** — step between worlds (Sun outward to Eris).
+- **Select** — deep-dive into the world in focus: its moons appear and the camera pulls back to
+  hold the whole system, then walks the family reading each one's fact and stats.
+- **Up / Down** — walk that family by hand (planet, then each moon).
+- **Menu / Back** — leave the deep-dive. At the top level it passes through, so Menu still exits
+  the app; it is only swallowed while a dive is open (see `Coordinator.gestureRecognizer`).
+- **Play/Pause** — wind the clock back to now.
+
+Moons are display-only: compressed spacing (a family would be invisible at true scale) and a
+circular orbit from a stored phase, exactly as the web atlas does it. Only Earth's Moon has a
+real texture; the rest are honest colour approximations. They exist only inside a deep-dive, and
+only the focused world's family is ever visible.
+
 ## Build
 
 ```sh

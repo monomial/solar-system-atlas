@@ -136,6 +136,16 @@ const PRONUNCIATIONS = {
   Haumea: "Howmayah",
   Charon: "Care-on",
   Kuiper: "Kyper",
+  // Moons espeak gets wrong: Io as "EE-oh", Mimas "MEE-mus", Rhea loses its ending, Miranda
+  // "MUR-anda", Oberon drops a syllable, Tethys "TETH-iss". Each respelling checked against the
+  // right phonemes (Io /ˈaɪəʊ/, Mimas /mˈaɪməs/, Rhea /ɹˈiːjə/, Miranda /mˈɪɹandə/, Oberon
+  // /ˈəʊbəɹən/, Tethys /tˈiːθɪs/). Ganymede, Callisto, Enceladus, Dione, Titania all checked out.
+  Io: "Eyeoh",
+  Mimas: "Mymus",
+  Rhea: "Reeya",
+  Miranda: "Mih-randa",
+  Oberon: "Oberron",
+  Tethys: "Teethiss",
 };
 function forSpeech(text) {
   let out = text;

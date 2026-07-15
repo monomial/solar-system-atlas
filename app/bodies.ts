@@ -214,4 +214,96 @@ export const NARRATION: Partial<Record<BodyName, string[]>> = {
     "Eris travels so far out that from there, the Sun is just one more star among all the rest.",
     "Eris is one of the most distant things we have ever seen. Past Eris, mostly, there is the dark.",
   ],
+
+  // Moons, for the deep-dive. Same rules as the planets: name it every line, no digits, warm, and
+  // true. These are the reward for stopping on a world, so each one leads with its own strangeness
+  // rather than just being "a moon of X".
+  Moon: [
+    "The Moon is the brightest thing in our night sky, and the only other world anyone has ever stood on.",
+    "The Moon has no air, so footprints left there fifty years ago are still exactly where they were pressed.",
+    "The Moon pulls the sea, just a little, and that is what makes the tide come in and go out every day.",
+  ],
+  Phobos: [
+    "Phobos is the bigger of Mars's two little moons, and it is not round. It is a lumpy rock, more like a potato.",
+    "Phobos races around Mars so fast that it rises and sets twice in a single Martian day.",
+    "Phobos is slowly falling towards Mars. One day, far from now, it will break apart into a ring.",
+  ],
+  Deimos: [
+    "Deimos is the smaller, outer moon of Mars, and it is tiny. You could walk all the way around it in an afternoon.",
+    "From the ground on Mars, Deimos would look like a bright little star drifting slowly across the sky.",
+  ],
+  Io: [
+    "Io is the most volcanic world we know of. Somewhere on Io, a volcano is almost always erupting.",
+    "Io is squeezed and pulled by Jupiter's enormous gravity, and all that squeezing keeps its insides hot.",
+    "Io is covered in yellow and orange and red, from all the sulphur its volcanoes throw out. It looks a bit like a pizza.",
+  ],
+  Europa: [
+    "Europa is a smooth ball of ice, criss-crossed with cracks, wrapped around a deep hidden ocean.",
+    "Under Europa's ice there is more water than in all of Earth's seas put together. Nobody knows what might be down there.",
+    "Europa is one of the best places to go looking for life beyond Earth, and we are sending a spacecraft to have a look.",
+  ],
+  Ganymede: [
+    "Ganymede is the biggest moon in the whole solar system. It is even bigger than the planet Mercury.",
+    "Ganymede is the only moon that makes its own magnetic field, the way Earth does.",
+    "Ganymede is a world of rock and ice, with grooves running across it that are older than almost anything else out here.",
+  ],
+  Callisto: [
+    "Callisto is covered in more craters than anywhere else we know. It has been hit so many times there is no room for more.",
+    "Callisto's surface is incredibly old. It looks almost the same now as it did when the solar system was young.",
+  ],
+  Mimas: [
+    "Mimas has one enormous crater on one side, which makes it look a little like the Death Star from the films.",
+    "Mimas is a small ball of ice, and that giant crater was made by a crash that very nearly broke it apart.",
+  ],
+  Enceladus: [
+    "Enceladus is the whitest, brightest world in the solar system. It is covered in fresh, clean ice.",
+    "Enceladus shoots great fountains of seawater out through cracks at its south pole, high up into space.",
+    "There is a warm, salty ocean hidden under the ice of Enceladus, and its fountains let us taste it from far away.",
+  ],
+  Tethys: [
+    "Tethys is a ball of almost pure ice, so light that it would float in water if you had a big enough bath.",
+    "Tethys has a canyon so long it stretches most of the way around the whole moon.",
+  ],
+  Dione: [
+    "Dione has bright, wispy streaks across it, which turned out to be tall cliffs of clean ice catching the light.",
+    "Dione may hide a small ocean deep inside, under all its rock and ice.",
+  ],
+  Rhea: [
+    "Rhea is Saturn's second-biggest moon, a cold and cratered ball of ice far from the Sun.",
+    "Rhea might once have had a faint ring of its own, which would make it the only moon we know that did.",
+  ],
+  Titan: [
+    "Titan is the only moon with a thick atmosphere, a real orange sky you could not see through from space.",
+    "Titan has rivers and lakes and rain, but they are not water. It is so cold there that the rain is more like the fuel in a car.",
+    "Titan is bigger than the planet Mercury, and a spacecraft once parachuted down through its clouds to land on it.",
+  ],
+  Iapetus: [
+    "Iapetus has one white side and one black side, as though somebody painted half of it.",
+    "Iapetus has a great ridge of mountains running right around its middle, which makes it look a little like a walnut.",
+  ],
+  Miranda: [
+    "Miranda looks like it was smashed to pieces and put back together, all mismatched cliffs and grooves.",
+    "Miranda has a cliff so tall that if you fell off the top, you would fall for minutes before reaching the bottom.",
+  ],
+  Ariel: [
+    "Ariel is the brightest of Uranus's moons, with long valleys that look as though something once flowed along them.",
+    "Ariel has the youngest, smoothest face of all Uranus's moons, so something resurfaced it long after the others.",
+  ],
+  Umbriel: [
+    "Umbriel is the darkest of Uranus's moons, an old and shadowy ball of ice covered in craters.",
+    "Umbriel has one bright ring on its surface, glowing against all the dark, and nobody is quite sure what it is.",
+  ],
+  Titania: [
+    "Titania is the largest moon of Uranus, cut across by enormous canyons far bigger than any on Earth.",
+    "Titania's great cracks opened up as the moon slowly froze and its insides pushed outward.",
+  ],
+  Oberon: [
+    "Oberon is the outermost big moon of Uranus, ancient and cratered, out on the cold edge of its family.",
+    "Some of the craters on Oberon have dark floors, as if something oozed up and filled them long ago.",
+  ],
+  Triton: [
+    "Triton goes around Neptune backwards, the wrong way. Neptune probably caught it, long ago, from somewhere else.",
+    "Triton is one of the coldest places in the whole solar system, and yet it has geysers that spray dark plumes into the sky.",
+    "Triton is slowly spiralling inward, and one far-off day Neptune's pull will tear it into a ring.",
+  ],
 };
