@@ -1,8 +1,10 @@
 import SceneKit
 import SwiftUI
+import UIKit
 
 struct AmbientView: View {
     @StateObject private var orrery = OrreryScene()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -32,6 +34,19 @@ struct AmbientView: View {
         }
         .background(.black)
         .animation(.easeInOut(duration: 1.4), value: orrery.caption)
+        // Hold off tvOS's Aerial screensaver, the same way a video player does. The screensaver is
+        // gated on the system idle timer, and this is an ambient display meant to be left running —
+        // there is no such thing as "idle" here. onAppear sets it for the initial launch; the
+        // scenePhase change reasserts it, because tvOS clears the flag whenever the app backgrounds.
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true
+            #if DEBUG
+            print("[idle] screensaver hold engaged: isIdleTimerDisabled=\(UIApplication.shared.isIdleTimerDisabled)")
+            #endif
+        }
+        .onChange(of: scenePhase) { _, phase in
+            UIApplication.shared.isIdleTimerDisabled = (phase == .active)
+        }
     }
 }
 
