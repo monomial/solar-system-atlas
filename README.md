@@ -1,8 +1,8 @@
 # Helios — Solar System Atlas
 
-An interactive 3D atlas of the solar system. Explore the planets, their major moons, and
-the dwarf planets; scrub to any date between 1800 and 2050; and watch the orbits play
-forward or backward in time.
+An interactive 3D atlas of our cosmic address. Explore the planets, their major moons, and
+the dwarf planets; scrub the solar system to any date between 1800 and 2050; then pull back
+to locate the Sun in the Milky Way and the Milky Way among its Local Group neighbors.
 
 **Live: https://monomial.github.io/solar-system-atlas/**
 
@@ -10,6 +10,10 @@ Positions are computed in the browser from JPL orbital elements — planets from
 [approximate Keplerian elements](https://ssd.jpl.nasa.gov/planets/approx_pos.html), dwarf
 planets from the [Small-Body Database](https://ssd-api.jpl.nasa.gov/doc/sbdb.html). These
 are two-body approximations: good enough to teach with, not good enough to navigate with.
+
+The galactic layers are scientific visualizations rather than orbital simulations. Milky Way
+structure is reconstructed from observations made inside the galaxy; Local Group distances
+are scaled from the Milky Way while galaxy sizes are enlarged enough to inspect.
 
 ## Running it
 

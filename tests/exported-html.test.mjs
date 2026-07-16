@@ -7,7 +7,7 @@ const out = (path) => fileURLToPath(new URL(`../out/${path}`, import.meta.url));
 
 test("static export produces a page shell", async () => {
   const html = await readFile(out("index.html"), "utf8");
-  assert.match(html, /<title>Helios[^<]*Solar System Atlas<\/title>/i);
+  assert.match(html, /<title>Helios[^<]*Solar System and Galactic Atlas<\/title>/i);
   // The atlas mounts client-side (ssr: false), so the prerendered HTML should carry
   // the shell and loading state rather than a rendered scene.
   assert.match(html, /class="[^"]*atlas-shell/);

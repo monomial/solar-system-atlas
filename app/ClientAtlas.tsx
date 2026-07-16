@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 
-const SolarSystem = dynamic(() => import("./SolarSystem"), {
+const CosmicAtlas = dynamic(() => import("./CosmicAtlas"), {
   ssr: false,
   loading: () => (
     <main className="atlas-shell">
@@ -15,5 +15,5 @@ const SolarSystem = dynamic(() => import("./SolarSystem"), {
 });
 
 export default function ClientAtlas() {
-  return <SolarSystem />;
+  return <CosmicAtlas />;
 }

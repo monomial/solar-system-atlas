@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-"Helios — Solar System Atlas": an interactive 3D solar system built with Three.js on a Next.js App Router surface. It is a **fully client-side static site** — no server, no API, no database. It renders heliocentric positions for any date between 1800-01-01 and 2050-12-31, computed in the browser.
+"Helios — Solar System and Galactic Atlas": an interactive 3D map built with Three.js on a Next.js App Router surface. It is a **fully client-side static site** — no server, no API, no database. Its solar-system layer renders heliocentric positions for any date between 1800-01-01 and 2050-12-31; its Milky Way and Local Group layers place our system in progressively larger cosmic contexts.
 
 Deployed to GitHub Pages at https://monomial.github.io/solar-system-atlas/ by `.github/workflows/deploy.yml` on every push to `main`.
 
@@ -22,13 +22,16 @@ Single test: `node --test --experimental-strip-types tests/orbits.test.mjs` (no 
 
 ## Architecture
 
-**Rendering path.** `app/page.tsx` → `app/ClientAtlas.tsx` → `app/SolarSystem.tsx`. `ClientAtlas` loads `SolarSystem` via `next/dynamic` with `ssr: false` because the scene needs DOM/WebGL at import time. The prerendered HTML is just a shell.
+**Rendering path.** `app/page.tsx` → `app/ClientAtlas.tsx` → `app/CosmicAtlas.tsx` → either `app/SolarSystem.tsx` or `app/DeepSpace.tsx`. `ClientAtlas` loads the atlas via `next/dynamic` with `ssr: false` because the scenes need DOM/WebGL at import time. The prerendered HTML is just a shell.
 
 Three modules carry everything:
 
 - `app/orbits.ts` — the two-body math. **No Three.js, no DOM**, so `node --test` can exercise it directly. Keep it that way; it is the one part of the app where a wrong answer looks exactly like a right one on screen.
 - `app/bodies.ts` — the body catalog (physical data + JPL elements). Also Three.js-free, so the tests check the *real* elements rather than a copy that would drift.
 - `app/SolarSystem.tsx` — the Three.js scene and all UI (~640 lines). `heliocentricVector` / `orbitVectors` are the only bridge from the math to `THREE.Vector3`.
+- `app/cosmic.ts` — typed Milky Way landmarks, Local Group galaxies, and the cross-scale guided journey. This is the source of truth for educational deep-space content.
+- `app/DeepSpace.tsx` — the separate Milky Way / Local Group Three.js renderer. Galactic coordinates are deliberately normalized independently from the solar-system simulation.
+- `app/CosmicAtlas.tsx` — owns scale switching, cinematic transitions, and the five-stop Cosmic Address journey. It unmounts one renderer before mounting the next so multiple animation loops never run at once.
 
 **The imperative bridge (most important invariant).** The entire Three.js scene is constructed in one mount-once `useEffect` with an empty dependency array. React state does *not* drive the scene through re-renders. Instead the effect publishes `apiRef.current = { focus, scale, date, previewDate }`, and UI handlers call those methods. Adding a dependency to that effect would tear down and rebuild the whole scene on every state change. Keep new scene mutations inside the effect and expose them through `apiRef`.
 
@@ -49,6 +52,8 @@ These are **two-body approximations** — they ignore perturbations, so accuracy
 **Moons** are display-only approximations. `moonOrbitRadius` is deliberately *logarithmic*, not physical, so moons stay visible next to their parent; orbits are circular from a stored `phase` rather than solved. Moons are hidden unless their family is selected (`showMoonFamily`). The UI labels this honestly ("DISPLAY SPACING COMPRESSED") — keep that framing.
 
 **WebGL fallback.** If `new THREE.WebGLRenderer()` throws, the mount gets a `.no-webgl` class and a pure-CSS orbit diagram (`.fallback-*` in `globals.css`) takes over while panels and the tour stay interactive. Note that most headless browsers cannot create a WebGL context and will hit this path — to QA the real scene you need a headed browser with GPU access.
+
+**Galactic scales.** Do not put the Milky Way or Local Group into the solar-system coordinate system. The scale jumps are too large to remain navigable or numerically meaningful. `DeepSpace` has separate normalized maps: the Milky Way is a reconstructed particle visualization with the Sun at roughly 26,000 light-years from the center; Local Group radial distances are proportional to catalog distances from the Milky Way, but galaxy diameters are enlarged and directions are schematic. Keep those qualifications visible in the UI.
 
 **Textures.** `TEXTURE_MAPS` maps bodies to real NASA-derived images in `public/textures/` (WebP, 2048×1024, ~2.4 MB total; they all load eagerly and gate the loading veil); anything absent falls back to `makePlanetTexture`, a procedural canvas gradient. The info panel's "VISUAL MAP" line surfaces which one is in use. Attribution requirements (CC BY 4.0 / NASA credit) are in `public/textures/README.md` — maintain them, and keep the "approximation" wording for Haumea, Makemake, and Eris, which have no resolved surface maps.
 

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./cosmic.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,8 +16,8 @@ const geistMono = Geist_Mono({
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export const metadata: Metadata = {
-  title: "Helios — Solar System Atlas",
-  description: "Explore today’s solar system in an interactive 3D learning map.",
+  title: "Helios — Solar System and Galactic Atlas",
+  description: "Explore the solar system, the Milky Way, and our neighboring galaxies in an interactive 3D learning map.",
   icons: {
     icon: `${basePath}/favicon.svg`,
     shortcut: `${basePath}/favicon.svg`,

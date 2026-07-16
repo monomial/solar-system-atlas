@@ -143,7 +143,9 @@ function labelTexture(name: string, color: string) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
-export default function Home() {
+type SolarSystemProps = { onAmbientModeChange?: (active:boolean)=>void };
+
+export default function Home({onAmbientModeChange}:SolarSystemProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<{ focus:(name:BodyName,close?:boolean)=>void;scale:(mode:ScaleMode)=>void;smallBodies:(category:SmallBodyCategory)=>void;date:(date:Date)=>void;previewDate:(date:Date)=>void;flyTo:(name:BodyName,onArrive:()=>void)=>void;setAmbient:(on:boolean)=>void }|null>(null);
   const [selected, setSelected] = useState<BodyName | null>("Earth");
@@ -157,6 +159,8 @@ export default function Home() {
   const [isPlaying,setIsPlaying]=useState(false);const [playbackRate,setPlaybackRate]=useState(30);const [playbackDirection,setPlaybackDirection]=useState<1|-1>(1);const simulationDateRef=useRef(selectedDate);
   const selectedBody = useMemo(() => ALL_BODIES.find(p => p.name === selected), [selected]);
   const ambient = useAmbient(() => apiRef.current);
+
+  useEffect(()=>onAmbientModeChange?.(ambient.phase!=="off"),[ambient.phase,onAmbientModeChange]);
 
   useEffect(() => {
     if (!mountRef.current) return;
