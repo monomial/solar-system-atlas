@@ -165,16 +165,18 @@ function galaxyDiskTexture({edge,seed,spin=3.2,irregular=false,loose=false,dwarf
     stamp(pinkPuff,x,y,size*(.008+rand()*.008),.22*s);
     for(let j=0;j<3;j++)stamp(pinkPuff,x+(rand()-.5)*size*.01,y+(rand()-.5)*size*.01,size*(.0025+rand()*.003),.55*s);
   }
-  // Fine star grain: mostly clustered on the arms, the rest a thin disk-wide field.
+  // Fine star grain: mostly clustered on the arms, the rest a thin disk-wide field. The second,
+  // sparser pass is bright pixel "resolved stars" — without them everything is soft brushwork and
+  // the whole disk reads as airbrushed fog.
   g.globalAlpha=1;
-  const grains=size*(irregular?9:19);
+  const grains=size*(irregular?9:26);
   for(let i=0;i<grains;i++){
     let x:number,y:number,r:number;
     if(!irregular&&rand()<.6){const arm=arms[(rand()*arms.length)|0];if(rand()>arm.s)continue;const p=along(arm,Math.pow(rand(),.9)),w=size*.03;r=p.r;x=p.x+(rand()+rand()-1)*w;y=p.y+(rand()+rand()-1)*w;}
     else{r=Math.pow(rand(),.62)*maxR;if(rand()<Math.pow(r/maxR,1.6))continue;const an=rand()*Math.PI*2;x=mid+Math.cos(an)*r;y=mid+Math.sin(an)*r;}
-    const a=(.05+rand()*.1).toFixed(3);
-    g.fillStyle=1-r/(size*.2)>rand()?`rgba(255,228,190,${a})`:`rgba(214,224,255,${a})`;
-    g.fillRect(x,y,1+rand(),1+rand());
+    const spark=rand()<.08,a=(spark?.25+rand()*.4:.06+rand()*.13).toFixed(3);
+    g.fillStyle=spark?`rgba(255,255,255,${a})`:1-r/(size*.2)>rand()?`rgba(255,228,190,${a})`:`rgba(214,224,255,${a})`;
+    g.fillRect(x,y,spark?1.4:1+rand(),spark?1.4:1+rand());
   }
   const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=16;return texture;
 }
@@ -216,9 +218,11 @@ function milkyWay(scene:THREE.Scene){
   // plane local (x,y) lands at world (x,-y) after the -π/2 tilt, so the local-z displacement
   // becomes world height — the same frame the star cloud's ripple uses.
   for(let i=0;i<pos.count;i++){const x=pos.getX(i),y=pos.getY(i),r=Math.hypot(x,y);pos.setZ(i,ripple(r,Math.atan2(-y,x)));}}
-  for(const h of[-1.4,-.7,0,.7,1.4]){
-    const weight=Math.exp(-(h*h)/1.45);
-    const slice=new THREE.Mesh(sliceGeometry,new THREE.MeshBasicMaterial({map:texture,transparent:true,opacity:(h===0?.42:.26)*weight,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  // Three slices, not five: every off-plane copy projects shifted in a tilted view, and stacking
+  // five of them reads as motion blur. Two dim outriggers give the thickness; the center carries
+  // the detail.
+  for(const h of[-1.1,0,1.1]){
+    const slice=new THREE.Mesh(sliceGeometry,new THREE.MeshBasicMaterial({map:texture,transparent:true,opacity:h===0?.5:.2,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
     slice.rotation.x=-Math.PI/2;slice.position.y=h;scene.add(slice);
   }
   const sk=galaxySkeleton(SEED,SPIN,true),rand=sk.rand,gauss=()=>(rand()+rand()+rand()+rand()-2)*.85;
@@ -247,7 +251,10 @@ function milkyWay(scene:THREE.Scene){
     put(r*Math.sin(ph)*Math.cos(th),r*Math.cos(ph)*.75,r*Math.sin(ph)*Math.sin(th),"#ffe8c8",.05+.09*rand());
   }
   const geometry=new THREE.BufferGeometry();geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));geometry.setAttribute("color",new THREE.BufferAttribute(colors,3));
-  const points=new THREE.Points(geometry,new THREE.PointsMaterial({size:.55,map:softDot("rgba(255,255,255,.85)","rgba(255,255,255,0)"),transparent:true,opacity:.42,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));scene.add(points);
+  const points=new THREE.Points(geometry,new THREE.PointsMaterial({size:.5,map:softDot("rgba(255,255,255,.85)","rgba(255,255,255,0)"),transparent:true,opacity:.36,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));scene.add(points);
+  // The same stars again as small bright cores (shared geometry, so it costs nothing): the soft
+  // halo layer alone reads as fog — the pinpoint pass is what makes them read as stars.
+  const cores=new THREE.Points(geometry,new THREE.PointsMaterial({size:.18,map:softDot("rgba(255,255,255,1)","rgba(255,255,255,0)"),transparent:true,opacity:.6,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));scene.add(cores);
   // Small hot nucleus only — the bulge's body now comes from the 3D cloud, not a flat ball of light.
   const nucleus=new THREE.Sprite(new THREE.SpriteMaterial({map:softDot("rgba(255,242,210,.9)","rgba(255,200,130,0)"),transparent:true,opacity:.5,depthWrite:false,blending:THREE.AdditiveBlending}));nucleus.scale.set(7,7,1);scene.add(nucleus);
   return points;
@@ -356,7 +363,7 @@ export default function DeepSpace({mode,focusId}:{mode:DeepMode;focusId?:string}
     renderer.setSize(mount.clientWidth,mount.clientHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.65));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.92;mount.appendChild(renderer.domElement);
     // Gentle bloom: a high threshold so only the very brightest cores glow, low strength so galaxies
     // keep their structure instead of melting into white discs.
-    const composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scene,camera));composer.addPass(new UnrealBloomPass(new THREE.Vector2(mount.clientWidth,mount.clientHeight),.5,.6,.86));
+    const composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scene,camera));composer.addPass(new UnrealBloomPass(new THREE.Vector2(mount.clientWidth,mount.clientHeight),.45,.5,.88));
     const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.045;controls.enablePan=false;controls.minDistance=6;controls.maxDistance=mode==="galaxy"?170:190;controls.target.set(0,0,0);
     const stars=starfield(scene,4200,mode==="galaxy"?380:500),labels:THREE.Sprite[]=[];const targets:THREE.Object3D[]=[];const positions=new Map<string,THREE.Vector3>();
     if(mode==="galaxy"){
