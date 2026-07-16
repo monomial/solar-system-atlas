@@ -17,6 +17,13 @@ test("the Sun marker is placed at the documented galactocentric radius", () => {
   assert.ok(radius > 25 && radius < 27, `${radius} thousand light-years is outside the intended range`);
 });
 
+test("galactic locations use semantic locator symbols", () => {
+  const byId = Object.fromEntries(GALACTIC_REGIONS.map((region) => [region.id, region]));
+  assert.equal(byId.center.markerKind, "center");
+  assert.equal(byId["solar-system"].markerKind, "home");
+  assert.ok(GALACTIC_REGIONS.filter((region) => !["center", "solar-system"].includes(region.id)).every((region) => region.markerKind === "region"));
+});
+
 test("Local Group distances preserve the educational ordering", () => {
   const byId = Object.fromEntries(NEARBY_GALAXIES.map((galaxy) => [galaxy.id, galaxy]));
   assert.equal(byId["milky-way"].distanceMly, 0);
@@ -24,6 +31,20 @@ test("Local Group distances preserve the educational ordering", () => {
   assert.ok(byId.smc.distanceMly < byId["ngc-6822"].distanceMly);
   assert.ok(byId.andromeda.distanceMly < byId.triangulum.distanceMly);
   assert.ok(NEARBY_GALAXIES.every((galaxy) => galaxy.distanceMly >= 0 && galaxy.visualSize > 0));
+});
+
+test("Local Group coordinates preserve distance scale and subgroup topology", () => {
+  const byId = Object.fromEntries(NEARBY_GALAXIES.map((galaxy) => [galaxy.id, galaxy]));
+  const separation = (a, b) => Math.hypot(...a.position.map((value, index) => value - b.position[index]));
+  const home = byId["milky-way"];
+  for (const galaxy of NEARBY_GALAXIES.filter((item) => item.id !== "milky-way")) {
+    const mappedDistance = separation(home, galaxy) / 20;
+    const relativeError = Math.abs(mappedDistance - galaxy.distanceMly) / galaxy.distanceMly;
+    assert.ok(relativeError < .12, `${galaxy.name} coordinate distance differs by ${(relativeError * 100).toFixed(1)}%`);
+  }
+  assert.ok(separation(byId.andromeda, byId.triangulum) < separation(home, byId.triangulum), "M33 should sit in the Andromeda subgroup");
+  assert.ok(separation(home, byId.lmc) < separation(byId.andromeda, byId.lmc), "LMC should sit in the Milky Way subgroup");
+  assert.ok(separation(home, byId.smc) < separation(byId.andromeda, byId.smc), "SMC should sit in the Milky Way subgroup");
 });
 
 test("the cosmic address journey crosses all three atlas layers", () => {

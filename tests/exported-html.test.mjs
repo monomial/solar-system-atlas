@@ -20,4 +20,8 @@ test("textures are exported alongside the page", async () => {
     const info = await stat(out(`textures/${texture}`));
     assert.ok(info.size > 0, `textures/${texture} should not be empty`);
   }
+  for (const texture of ["milky-way-1024.webp", "andromeda-2048.webp", "triangulum-2048.webp"]) {
+    const info = await stat(out(`textures/local-group/${texture}`));
+    assert.ok(info.size > 0, `textures/local-group/${texture} should not be empty`);
+  }
 });

@@ -8,6 +8,10 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { GALACTIC_REGIONS, NEARBY_GALAXIES } from "./cosmic";
 import type { AtlasMode, GalacticRegion, NearbyGalaxy } from "./cosmic";
+import { ARM_START, MILKY_WAY_SEED, MILKY_WAY_SPIN, galaxySkeleton, hexRgb, milkyWayMaps, paintAndromeda, paintGalaxyDisk } from "./galaxyPaint";
+import { createGalaxyVolume } from "./galaxyVolume";
+import { chooseGalaxyDetailQuality, createGalacticMarker, createGalaxyDetailSurface, loadGalaxyDetailTexture, loadGalaxyVolumeTexture } from "./galaxyDetail";
+import { hasAuthoredLocalGroupTexture, loadLocalGroupTexture } from "./localGroupAssets";
 
 type DeepMode = Exclude<AtlasMode,"solar">;
 type ViewMode = "tilted"|"top"|"edge";
@@ -23,10 +27,9 @@ const DEEP_SOURCE_LINKS = [
 ];
 
 function seeded(n:number){const x=Math.sin(n*999.91)*43758.5453;return x-Math.floor(x);}
-// Deterministic PRNG so a galaxy's texture is stable across mode switches (Math.random would
-// redraw a different galaxy every time you leave and come back, which reads as flicker).
-function rng(seed:number){let s=seed>>>0;return()=>{s=s+0x6d2b79f5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
-function hexRgb(h:string){const n=parseInt(h.slice(1),16);return[n>>16&255,n>>8&255,n&255] as const;}
+// All galaxy painting lives in galaxyPaint.ts (Three-free, DOM-optional — the bake script and the
+// tvOS pipeline reuse it). This module only wraps its canvases for the GPU.
+function canvasTexture(canvas:HTMLCanvasElement){const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=16;return texture;}
 
 function labelTexture(name:string,color:string){
   const canvas=document.createElement("canvas");canvas.width=512;canvas.height=112;const context=canvas.getContext("2d")!;
@@ -43,144 +46,6 @@ function softDot(inner:string,outer:string){
   const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;return texture;
 }
 
-// Paints a galaxy the way NASA's illustrators draw the Milky Way "simulated image" top view:
-// a continuous milky disk whose arms are brighter overdensities *within* the glow (never streaks
-// over blackness), broken dark dust lanes etched along each arm's inner edge, an elongated cream
-// bar with a bright core, pink star-forming knots, and fine one-pixel star grain. Everything is
-// stamped from soft brush sprites onto one canvas; because the plane renders additively, dark
-// dust paint simply blocks glow — exactly what real dust does. Deterministic per seed.
-// The spiral skeleton, shared by the painted texture AND the 3D star cloud — both sample this one
-// structure so the volumetric stars land exactly on the painted arms. Two major arms leave the
-// bar's tips, two fainter minors sit halfway between (a0 is each arm's TRUE angle at its own start
-// radius — the log term is measured from that radius, otherwise the minors inherit the phase
-// accumulated over their start offset and swing around to hug the majors, reading as two arms
-// splitting rather than four). Each arm gets its own pitch, length, wobble, and noise lanes.
-// polar() returns the radius as a fraction of the disk edge, so each consumer scales into its own
-// space: texture pixels or world units. Deterministic per seed.
-type Arm={a0:number;s:number;sp:number;r1:number;tEnd:number;w1:number;w2:number;n1:(x:number)=>number;n2:(x:number)=>number;nd:(x:number)=>number};
-// `rich` is the Milky Way's own anatomy (per the NASA/JPL annotated map): brighter minors and a
-// fifth strand — the Outer Arm — sweeping only the rim. Everything downstream (paint, dust, pink
-// knots, grain, AND the 3D star cloud) iterates over `arms`, so one entry here lights up everywhere.
-function galaxySkeleton(seed:number,spin:number,rich=false){
-  const rand=rng(seed);
-  const noise1=()=>{const v=Array.from({length:64},()=>rand());return(x:number)=>{const i=Math.floor(x),f=x-i,u=f*f*(3-2*f);return v[i&63]*(1-u)+v[(i+1)&63]*u;};};
-  const bar=rand()*Math.PI,start=.304;
-  const arms:Arm[]=[0,1,2,3].map(i=>({a0:bar+Math.PI*(i<2?i:i-1.5)+(i<2?0:(rand()-.5)*.3),s:i<2?1:rich?.8:.55,sp:spin*(.96+rand()*.08),r1:i<2?1:rich?1.1+rand()*.15:1.3+rand()*.2,tEnd:.88+rand()*.14,w1:rand()*9,w2:rand()*9,n1:noise1(),n2:noise1(),nd:noise1()}));
-  if(rich)arms.push({a0:bar+Math.PI*.75+(rand()-.5)*.4,s:.55,sp:spin*(.96+rand()*.08),r1:2.3,tEnd:.95,w1:rand()*9,w2:rand()*9,n1:noise1(),n2:noise1(),nd:noise1()});
-  const polar=(arm:Arm,t:number)=>{const rho=start*arm.r1+(1-start*arm.r1)*t,a=arm.a0+arm.sp*Math.log(rho/(start*arm.r1))+Math.sin(t*5.3+arm.w1)*.05+Math.sin(t*9.1+arm.w2)*.028;return{rho,a};};
-  return{rand,bar,arms,polar};
-}
-
-// A soft round brush sprite, cached per colour — the unit every painter below stamps with.
-function brush(r:number,gr:number,b:number){const c=document.createElement("canvas");c.width=c.height=128;const p=c.getContext("2d")!,grd=p.createRadialGradient(64,64,0,64,64,64);grd.addColorStop(0,`rgba(${r},${gr},${b},1)`);grd.addColorStop(.45,`rgba(${r},${gr},${b},.42)`);grd.addColorStop(1,`rgba(${r},${gr},${b},0)`);p.fillStyle=grd;p.fillRect(0,0,128,128);return c;}
-
-function galaxyDiskTexture({edge,seed,spin=3.2,irregular=false,loose=false,dwarf=false,rich=false,size=1024}:{edge:string;seed:number;spin?:number;irregular?:boolean;loose?:boolean;dwarf?:boolean;rich?:boolean;size?:number}){
-  const{rand,bar,arms,polar}=galaxySkeleton(seed,spin,rich);
-  // "loose" is the M33 look: all arms comparable, open and flocculent, tiny nucleus, weak dust.
-  if(loose)for(const arm of arms)arm.s=Math.max(arm.s,.75);
-  const mid=size/2,maxR=size*.46;
-  const canvas=document.createElement("canvas");canvas.width=canvas.height=size;const g=canvas.getContext("2d")!;
-  const [er,eg,eb]=hexRgb(edge);
-  const armPuff=brush(er,eg,eb),creamPuff=brush(255,230,190),dustPuff=brush(24,16,11),pinkPuff=brush(255,148,168);
-  const stamp=(img:HTMLCanvasElement,x:number,y:number,s:number,a:number)=>{g.globalAlpha=a;g.drawImage(img,x-s/2,y-s/2,s,s);};
-  const along=(arm:Arm,t:number)=>{const{rho,a}=polar(arm,t),r=rho*maxR;return{r,a,x:mid+Math.cos(a)*r,y:mid+Math.sin(a)*r};};
-  g.globalCompositeOperation="lighter";
-  const disk=g.createRadialGradient(mid,mid,0,mid,mid,maxR);
-  disk.addColorStop(0,`rgba(${er},${eg},${eb},${irregular?.2:.15})`);disk.addColorStop(.45,`rgba(${er},${eg},${eb},.09)`);disk.addColorStop(.82,`rgba(${er},${eg},${eb},.04)`);disk.addColorStop(1,`rgba(${er},${eg},${eb},0)`);
-  g.fillStyle=disk;g.fillRect(0,0,size,size);
-  // Luminous arm bands: overlapping soft brushes whose brightness and width both ride the noise —
-  // bright star-forming clumps, dim stretches, wavering edges — plus short "feather" spurs peeling
-  // off at a drifting angle. Uniform tubes are the single biggest tell of a fake galaxy.
-  if(!irregular)for(const arm of arms){
-    // Narrow bands, densely stamped: with the arms wound ~300°, neighbouring wraps sit ~30% apart
-    // in radius, so wide soft shoulders would bridge the gap and melt the strands back together.
-    for(let t=0;t<=arm.tEnd;t+=1/340){
-      const fade=Math.min(1,(arm.tEnd-t)*7),clump=(.3+Math.pow(arm.n1(t*13),1.7)*1.5)*fade;
-      const w=size*(.042-.014*t)*(.72+arm.n2(t*8)*.6),{x,y}=along(arm,t);
-      stamp(armPuff,x+(rand()-.5)*w*1.3,y+(rand()-.5)*w*1.3,w*2.1,.021*arm.s*clump);
-      stamp(armPuff,x+(rand()-.5)*w*.5,y+(rand()-.5)*w*.5,w*1.05,.055*arm.s*clump);
-      if(t<.45)stamp(creamPuff,x,y,w*1.8,.015*(1-t*2.2)*arm.s);
-    }
-    for(let i=0;i<6;i++){
-      const t0=.12+rand()*.65,dir=rand()<.5?1:-1,len=.06+rand()*.08;
-      for(let u=0;u<=1;u+=.1){const p=along(arm,t0+len*u),drift=dir*u*.16;stamp(armPuff,mid+Math.cos(p.a+drift)*p.r,mid+Math.sin(p.a+drift)*p.r,size*.028*(1-u*.5),.022*(1-u)*arm.s);}
-    }
-  }
-  if(irregular)for(let i=0;i<(dwarf?5:10);i++){const rr=Math.pow(rand(),.7)*maxR*.62,an=rand()*Math.PI*2;stamp(armPuff,mid+Math.cos(an)*rr,mid+Math.sin(an)*rr,size*(.16+rand()*.22),dwarf?.06:.09);}
-  if(rich){
-    // The Near and Far 3kpc Arms: tight cream arcs hugging the bar's two ends…
-    for(const tip of[0,Math.PI])for(let u=0;u<=1;u+=1/70){
-      const a=bar+tip+u*1.6,r=maxR*.304*(1.04+u*.12);
-      stamp(creamPuff,mid+Math.cos(a)*r,mid+Math.sin(a)*r,size*.02,.05*(1-u*.4));
-    }
-    // …and the Orion Spur, the short bridge between arms that our Sun actually lives on.
-    const arm=arms[2];
-    for(let u=0;u<=1;u+=.08){
-      const p=along(arm,.4+.11*u),drift=.2*u;
-      stamp(armPuff,mid+Math.cos(p.a+drift)*p.r,mid+Math.sin(p.a+drift)*p.r,size*.03*(1-u*.4),.05*(1-u*.5));
-    }
-  }
-  // Dust: ragged strands hugging each arm's inner (concave) edge. Noise-gated *segments* — dust
-  // appears in continuous stretches then breaks — never per-stamp coin flips, which produce the
-  // evenly-beaded polka-dot chains that scream "drawn by a computer".
-  g.globalCompositeOperation="source-over";
-  if(!irregular)for(const arm of arms)for(let t=.06;t<=arm.tEnd;t+=1/620){
-    const gate=arm.nd(t*24);if(gate<.42)continue;
-    const{r,x,y}=along(arm,t),k=1-size*(.012+.008*arm.n2(t*15))/r,j=(arm.n1(t*33)-.5)*size*.007;
-    // The last factor ties dust to the band's own clump noise (same n1 lane, same frequency as the
-    // brightness pass): dust only shows where there is glow behind it to block, so a dimming arm
-    // never leaves a bare dark scratch floating over the faint inter-arm disk.
-    stamp(dustPuff,mid+(x-mid)*k+j,mid+(y-mid)*k+j,size*(.003+arm.n2(t*41)*.004),(.14-.07*t)*(loose?.5:1)*arm.s*(.3+gate*.7)*(.3+.7*arm.n1(t*13)));
-  }
-  // Cirrus mottling over the whole disk — faint dark wisps, then faint bright patches — so the
-  // underlying gradients stop reading as smooth airbrush. Kept whisper-quiet: strong dark blobs
-  // punch "holes" in the disk and read as blotches.
-  for(let i=0;i<300;i++){const rr=maxR*(.15+Math.pow(rand(),.7)*.85),an=rand()*Math.PI*2;stamp(dustPuff,mid+Math.cos(an)*rr,mid+Math.sin(an)*rr,size*(.012+rand()*.022),.02+rand()*.03);}
-  g.globalCompositeOperation="lighter";
-  for(let i=0;i<240;i++){const rr=maxR*Math.pow(rand(),.6),an=rand()*Math.PI*2;stamp(armPuff,mid+Math.cos(an)*rr,mid+Math.sin(an)*rr,size*(.015+rand()*.03),.02+rand()*.025);}
-  g.globalCompositeOperation="lighter";g.globalAlpha=1;// stamp() leaves globalAlpha at its last brush
-  // The bar: an elongated cream gradient. Loose spirals get a small round nucleus instead, and
-  // Magellanic-type irregulars get a stubby bar shoved off-centre — which is literally the LMC.
-  const ox=irregular&&!dwarf?(rand()-.5)*size*.15:0,oy=irregular&&!dwarf?(rand()-.5)*size*.15:0;
-  g.save();g.translate(mid+ox,mid+oy);g.rotate(bar);g.scale(1,irregular?(dwarf?.78:.6):loose?.72:.36);
-  const bulge=g.createRadialGradient(0,0,0,0,0,size*(irregular?(dwarf?.17:.23):loose?.11:.2));
-  bulge.addColorStop(0,"rgba(255,236,190,.78)");bulge.addColorStop(.45,"rgba(255,222,160,.45)");bulge.addColorStop(.75,"rgba(255,210,150,.16)");bulge.addColorStop(1,"rgba(255,205,150,0)");
-  g.fillStyle=bulge;g.fillRect(-size,-size,size*2,size*2);g.restore();
-  if(!irregular){
-    const core=g.createRadialGradient(mid,mid,0,mid,mid,size*(loose?.022:.04));
-    core.addColorStop(0,`rgba(255,248,228,${loose?.55:.7})`);core.addColorStop(1,"rgba(255,230,185,0)");
-    g.fillStyle=core;g.fillRect(0,0,size,size);
-  }
-  // Pink star-forming complexes on the arms (scattered, for irregulars): each is a dim halo with
-  // a few small bright cores, not one flat uniform dot. Magellanic irregulars also get one giant
-  // complex — the LMC's Tarantula Nebula is bright enough to dominate photos of the whole galaxy.
-  if(irregular&&!dwarf){
-    const an=rand()*Math.PI*2,rr=maxR*(.35+rand()*.25),x=mid+Math.cos(an)*rr,y=mid+Math.sin(an)*rr;
-    stamp(pinkPuff,x,y,size*.05,.3);for(let j=0;j<5;j++)stamp(pinkPuff,x+(rand()-.5)*size*.03,y+(rand()-.5)*size*.03,size*(.004+rand()*.005),.6);
-  }
-  for(let i=0;i<(irregular?(dwarf?2:7):26);i++){
-    let x:number,y:number,s=1;
-    if(irregular){const rr=Math.pow(rand(),.6)*maxR*.7,an=rand()*Math.PI*2;x=mid+Math.cos(an)*rr;y=mid+Math.sin(an)*rr;}
-    else{const arm=arms[i%arms.length],p=along(arm,.15+rand()*.75);if(rand()>arm.s)continue;s=arm.s;x=p.x+(rand()-.5)*size*.014;y=p.y+(rand()-.5)*size*.014;}
-    stamp(pinkPuff,x,y,size*(.008+rand()*.008),.22*s);
-    for(let j=0;j<3;j++)stamp(pinkPuff,x+(rand()-.5)*size*.01,y+(rand()-.5)*size*.01,size*(.0025+rand()*.003),.55*s);
-  }
-  // Fine star grain: mostly clustered on the arms, the rest a thin disk-wide field. The second,
-  // sparser pass is bright pixel "resolved stars" — without them everything is soft brushwork and
-  // the whole disk reads as airbrushed fog.
-  g.globalAlpha=1;
-  const grains=size*(irregular?9:26);
-  for(let i=0;i<grains;i++){
-    let x:number,y:number,r:number;
-    if(!irregular&&rand()<.6){const arm=arms[(rand()*arms.length)|0];if(rand()>arm.s)continue;const p=along(arm,Math.pow(rand(),.9)),w=size*.03;r=p.r;x=p.x+(rand()+rand()-1)*w;y=p.y+(rand()+rand()-1)*w;}
-    else{r=Math.pow(rand(),.62)*maxR;if(rand()<Math.pow(r/maxR,1.6))continue;const an=rand()*Math.PI*2;x=mid+Math.cos(an)*r;y=mid+Math.sin(an)*r;}
-    const spark=rand()<.08,a=(spark?.25+rand()*.4:.06+rand()*.13).toFixed(3);
-    g.fillStyle=spark?`rgba(255,255,255,${a})`:1-r/(size*.2)>rand()?`rgba(255,228,190,${a})`:`rgba(214,224,255,${a})`;
-    g.fillRect(x,y,spark?1.4:1+rand(),spark?1.4:1+rand());
-  }
-  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=16;return texture;
-}
-
 function starfield(scene:THREE.Scene,count:number,radius:number){
   const positions=new Float32Array(count*3),colors=new Float32Array(count*3),color=new THREE.Color();
   for(let index=0;index<count;index++){
@@ -192,48 +57,42 @@ function starfield(scene:THREE.Scene,count:number,radius:number){
   const points=new THREE.Points(geometry,new THREE.PointsMaterial({size:radius/560,map:softDot("rgba(255,255,255,.9)","rgba(255,255,255,0)"),transparent:true,opacity:.7,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));scene.add(points);return points;
 }
 
-function milkyWay(scene:THREE.Scene){
-  // The luminous disk itself is a single additive plane carrying the drawn spiral; the point cloud
-  // below only adds grain and a bit of vertical thickness so the edge-on view still reads as a band.
-  // The galaxy has real volume, built from two systems that share one skeleton:
-  // (1) the painted disk stacked as translucent slices through the disk's thickness — one plane is
-  // a picture, a gaussian-weighted stack is a glowing slab whose layers parallax as you orbit;
-  // (2) a 3D star cloud sampled from the SAME arm skeleton, so its stars clump exactly where the
-  // painted arms are bright: a flared thin disk of arm stars, a thicker old-star field, a triaxial
-  // bulge aligned with the painted bar, and a sparse spherical halo.
-  // SPIN 4.6 winds the arms ~300° (a ~12° pitch — the NASA/JPL map's Scutum-Centaurus wraps the
-  // whole disk), which is what makes the disk read as many nested strands instead of four spokes.
-  const SEED=7,SPIN=4.6,R=56;
+function milkyWay(scene:THREE.Scene,authoredVolume?:THREE.Texture){
+  // The crisp authored surface owns the visible spiral geometry. The volume receives a heavily
+  // low-pass derivative of that exact image, while this procedural cloud is quiet enough to read
+  // as resolved stars rather than a competing set of broad arms.
+  // SPIN 4.6 winds the majors ~300° (a ~12° pitch — the NASA/JPL map's Scutum-Centaurus wraps the
+  // whole disk), which is what makes the disk read as many nested strands instead of spokes. The
+  // arms themselves are the named MILKY_WAY_ARMS table, one strand per arm on the annotated map.
+  const SEED=MILKY_WAY_SEED,SPIN=MILKY_WAY_SPIN,R=56;
   // The disk is not flat. SDSS and Gaia show the Milky Way is CORRUGATED — concentric vertical
   // ripples that grow toward the rim (the Monoceros and TriAndromeda rings are crests of that
   // pattern) — and the outer disk carries an integral-sign warp, up on one side, down on the
-  // other. One displacement function drives both the slice geometry and the star cloud, so the
-  // painted glow and the stars undulate together instead of ending in a dead-flat plane.
-  const ripple=(r:number,theta:number)=>{const f=r/R;return Math.sin(r*.42+1.3)*(.1+f*f*1.1)+f*f*f*2.4*Math.sin(theta-1.1);};
-  const texture=galaxyDiskTexture({edge:"#a9c6ff",seed:SEED,spin:SPIN,rich:true,size:2048});
-  // Kept tight (±1.4) with a dominant center slice: spreading the stack wider adds thickness but
-  // smears the projected arm detail in tilted views — the outer slices should whisper, not talk.
-  const sliceGeometry=new THREE.PlaneGeometry(122,122,96,96);
-  {const pos=sliceGeometry.attributes.position;
-  // plane local (x,y) lands at world (x,-y) after the -π/2 tilt, so the local-z displacement
-  // becomes world height — the same frame the star cloud's ripple uses.
-  for(let i=0;i<pos.count;i++){const x=pos.getX(i),y=pos.getY(i),r=Math.hypot(x,y);pos.setZ(i,ripple(r,Math.atan2(-y,x)));}}
-  // Three slices, not five: every off-plane copy projects shifted in a tilted view, and stacking
-  // five of them reads as motion blur. Two dim outriggers give the thickness; the center carries
-  // the detail.
-  for(const h of[-1.1,0,1.1]){
-    const slice=new THREE.Mesh(sliceGeometry,new THREE.MeshBasicMaterial({map:texture,transparent:true,opacity:h===0?.5:.2,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
-    slice.rotation.x=-Math.PI/2;slice.position.y=h;scene.add(slice);
-  }
+  // other. One displacement function drives both the volume shader (ported to GLSL there) and the
+  // star cloud, so the glowing gas and the stars undulate together.
+  // The .55 damping matches the volume shader exactly — full amplitude makes oblique columns
+  // through the glowing sheet read as wavy defocus bands from above (see galaxyVolume.ts).
+  const ripple=(r:number,theta:number)=>{const f=r/R;return(Math.sin(r*.42+1.3)*(.1+f*f*1.1)+f*f*f*2.4*Math.sin(theta-1.1))*.55;};
+  const maps=milkyWayMaps(2048);
+  const emission=authoredVolume??canvasTexture(maps.emission);
+  // The dust map is data, not color: keep it linear so the shader reads density unencoded.
+  const dust=new THREE.CanvasTexture(maps.dust);dust.colorSpace=THREE.NoColorSpace;
+  scene.add(createGalaxyVolume(emission,dust));
   const sk=galaxySkeleton(SEED,SPIN,true),rand=sk.rand,gauss=()=>(rand()+rand()+rand()+rand()-2)*.85;
-  const armN=14000,fieldN=7000,bulgeN=4200,haloN=800,total=armN+fieldN+bulgeN+haloN;
+  const armN=22000,fieldN=7000,bulgeN=4200,haloN=800,total=armN+fieldN+bulgeN+haloN;
   const positions=new Float32Array(total*3),colors=new Float32Array(total*3),color=new THREE.Color();
   let p=0;const put=(x:number,y:number,z:number,c:string,f:number)=>{positions[p*3]=x;positions[p*3+1]=y;positions[p*3+2]=z;color.set(c);colors[p*3]=color.r*f;colors[p*3+1]=color.g*f;colors[p*3+2]=color.b*f;p++;};
   for(let i=0;i<armN;i++){
-    const arm=sk.arms[(rand()*sk.arms.length)|0],t=Math.pow(rand(),.9)*arm.tEnd,{rho,a}=sk.polar(arm,t);
-    const clump=.3+Math.pow(arm.n1(t*13),1.7)*1.5,w=(.05-.016*t)*(.72+arm.n2(t*8)*.6)*2*R,r=rho*R;
+    // The named arms differ hugely in length (Norma is a short inner arc, Scutum–Centaurus wraps
+    // the disk), so rejection-weight by each arm's rho span — otherwise short arms end up several
+    // times denser per unit length. Rejected slots stay zeroed: black points are invisible under
+    // additive blending.
+    const arm=sk.arms[(rand()*sk.arms.length)|0];if(rand()*.67>arm.tEnd*(1-ARM_START*arm.r1))continue;
+    const t=Math.pow(rand(),.9)*arm.tEnd,{rho,a}=sk.polar(arm,t);
+    const clump=.3+Math.pow(arm.n1(t*13),1.7)*1.5,w=(.05-.016*t)*(.72+arm.n2(t*8)*.6)*2*R*arm.wf,r=rho*R;
+    const root=arm.soft?Math.min(1,.2+t/arm.tEnd*2.5):1;
     // young population: hugs the (corrugated) plane, flares slightly outward, pink where born
-    put(Math.cos(a)*r+gauss()*w*.45,ripple(r,a)+gauss()*(.35+r/R*.55),Math.sin(a)*r+gauss()*w*.45,rand()<.03?"#ff9bb4":rand()<.12?"#cfe0ff":"#e8eeff",(.22+.45*rand())*clump*arm.s);
+    put(Math.cos(a)*r+gauss()*w*.45,ripple(r,a)+gauss()*(.35+r/R*.55),Math.sin(a)*r+gauss()*w*.45,rand()<.03?"#ff9bb4":rand()<.12?"#cfe0ff":"#e8eeff",(.22+.45*rand())*clump*arm.s*root);
   }
   for(let i=0;i<fieldN;i++){
     // old disk population: no arm memory, warmer, twice the scale height
@@ -251,75 +110,29 @@ function milkyWay(scene:THREE.Scene){
     put(r*Math.sin(ph)*Math.cos(th),r*Math.cos(ph)*.75,r*Math.sin(ph)*Math.sin(th),"#ffe8c8",.05+.09*rand());
   }
   const geometry=new THREE.BufferGeometry();geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));geometry.setAttribute("color",new THREE.BufferAttribute(colors,3));
-  const points=new THREE.Points(geometry,new THREE.PointsMaterial({size:.5,map:softDot("rgba(255,255,255,.85)","rgba(255,255,255,0)"),transparent:true,opacity:.36,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));scene.add(points);
+  // Halo pass kept very quiet: the raymarched medium now carries ALL the milk; these blobs only
+  // feather the stars so the pinpoint pass below doesn't read as confetti. Any louder and 22k
+  // overlapping soft dots lay a lumpy veil over the crisp painted arms in the top view.
+  const points=new THREE.Points(geometry,new THREE.PointsMaterial({size:.28,map:softDot("rgba(255,255,255,.85)","rgba(255,255,255,0)"),transparent:true,opacity:.025,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));points.renderOrder=2;scene.add(points);
   // The same stars again as small bright cores (shared geometry, so it costs nothing): the soft
   // halo layer alone reads as fog — the pinpoint pass is what makes them read as stars.
-  const cores=new THREE.Points(geometry,new THREE.PointsMaterial({size:.18,map:softDot("rgba(255,255,255,1)","rgba(255,255,255,0)"),transparent:true,opacity:.6,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));scene.add(cores);
-  // Small hot nucleus only — the bulge's body now comes from the 3D cloud, not a flat ball of light.
-  const nucleus=new THREE.Sprite(new THREE.SpriteMaterial({map:softDot("rgba(255,242,210,.9)","rgba(255,200,130,0)"),transparent:true,opacity:.5,depthWrite:false,blending:THREE.AdditiveBlending}));nucleus.scale.set(7,7,1);scene.add(nucleus);
+  const cores=new THREE.Points(geometry,new THREE.PointsMaterial({size:.14,map:softDot("rgba(255,255,255,1)","rgba(255,255,255,0)"),transparent:true,opacity:.38,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));cores.renderOrder=2;scene.add(cores);
+  // (The nucleus sprite is gone: the volume's analytic nucleus term replaced it.)
   return points;
-}
-
-// Andromeda gets its own painter, because M31's appearance is *known*, and it is not a generic
-// open spiral: a huge soft warm bulge that dominates the light, dust lanes wound so tightly they
-// read as nested rings, and a blue star-forming outer ring. Painted face-on — the heavy ~75°
-// inclination that makes the photographs unmistakable comes from the plane's tilt in the scene.
-function andromedaTexture(seed:number,size=1024){
-  const rand=rng(seed),mid=size/2,maxR=size*.47;
-  const canvas=document.createElement("canvas");canvas.width=canvas.height=size;const g=canvas.getContext("2d")!;
-  const blue=brush(150,180,235),dust=brush(26,17,12),pink=brush(255,150,170);
-  const stamp=(img:HTMLCanvasElement,x:number,y:number,s:number,a:number)=>{g.globalAlpha=a;g.drawImage(img,x-s/2,y-s/2,s,s);};
-  const noise=()=>{const v=Array.from({length:64},()=>rand());return(x:number)=>{const i=Math.floor(x),f=x-i,u=f*f*(3-2*f);return v[i&63]*(1-u)+v[(i+1)&63]*u;};};
-  g.globalCompositeOperation="lighter";
-  let grad=g.createRadialGradient(mid,mid,0,mid,mid,maxR);
-  grad.addColorStop(0,"rgba(255,226,180,.34)");grad.addColorStop(.45,"rgba(238,214,180,.16)");grad.addColorStop(.75,"rgba(170,185,225,.07)");grad.addColorStop(1,"rgba(150,170,220,0)");
-  g.fillStyle=grad;g.fillRect(0,0,size,size);
-  grad=g.createRadialGradient(mid,mid,0,mid,mid,size*.2);
-  grad.addColorStop(0,"rgba(255,246,225,.95)");grad.addColorStop(.35,"rgba(255,228,178,.55)");grad.addColorStop(1,"rgba(255,214,160,0)");
-  g.fillStyle=grad;g.fillRect(0,0,size,size);
-  // nested dust bands — M31's lanes circle the disk rather than opening into arms. Each band is
-  // stamps scattered radially across a width, so it reads as braided diffuse dust, not a drawn
-  // contour line.
-  g.globalCompositeOperation="source-over";
-  for(const[rho,str]of[[.5,.9],[.68,1],[.85,.55]] as const){
-    const n=noise(),n2=noise(),phase=rand()*9;
-    for(let th=0;th<Math.PI*2;th+=Math.PI/420){
-      const gate=n(th*3+phase);if(gate<.25)continue;
-      const r=maxR*rho*(1+(n2(th*4)-.5)*.05)+(rand()+rand()-1)*size*.012;
-      stamp(dust,mid+Math.cos(th)*r,mid+Math.sin(th)*r,size*(.008+rand()*.012),.09*str*(.3+gate*.7));
-    }
-  }
-  g.globalCompositeOperation="lighter";
-  // the blue outer star-forming ring, studded with pink knots
-  {const n=noise(),phase=rand()*9;
-  for(let th=0;th<Math.PI*2;th+=Math.PI/300){
-    const r=maxR*.8*(1+(n(th*4+phase)-.5)*.05);
-    stamp(blue,mid+Math.cos(th)*r,mid+Math.sin(th)*r,size*(.02+n(th*9)*.02),.05+.05*n(th*4+phase));
-    if(rand()<.06)stamp(pink,mid+Math.cos(th)*r+(rand()-.5)*size*.01,mid+Math.sin(th)*r+(rand()-.5)*size*.01,size*(.003+rand()*.004),.5);
-  }}
-  // grain: warm toward the bulge, cool in the outskirts
-  g.globalAlpha=1;
-  for(let i=0;i<size*14;i++){
-    const rr=Math.pow(rand(),.6);if(rand()<Math.pow(rr,2.2))continue;
-    const r=rr*maxR,th=rand()*Math.PI*2,a=(.04+rand()*.09).toFixed(3);
-    g.fillStyle=rr<.45?`rgba(255,225,185,${a})`:`rgba(200,212,245,${a})`;
-    g.fillRect(mid+Math.cos(th)*r,mid+Math.sin(th)*r,1+rand(),1+rand());
-  }
-  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=16;return texture;
 }
 
 // One Local Group galaxy, drawn as what it actually is: Andromeda by its dedicated painter, the
 // Milky Way with the SAME seed as the galaxy-scale view (one object, one look at both scales),
 // M33 as a loose flocculent spiral, the Magellanics and dwarfs as irregular smudges. Spirals get
 // three thin texture layers for a hint of volume; each sits at its real published inclination.
-function buildGalaxy(scene:THREE.Object3D,galaxy:NearbyGalaxy,position:THREE.Vector3){
+function buildGalaxy(scene:THREE.Object3D,galaxy:NearbyGalaxy,position:THREE.Vector3,authoredTexture?:THREE.Texture){
   const [r,g,b]=hexRgb(galaxy.color),home=galaxy.distanceMly===0,v=galaxy.variant;
   const seed=Math.round(galaxy.angle*97+galaxy.visualSize*29)+3;
-  const texture=v==="andromeda"?andromedaTexture(31,1024)
-    :v==="milkyway"?galaxyDiskTexture({edge:"#a9c6ff",seed:7,spin:4.6,rich:true,size:1024})
-    :v==="triangulum"?galaxyDiskTexture({edge:galaxy.color,seed,spin:2.1,loose:true,size:1024})
-    :galaxyDiskTexture({edge:galaxy.color,seed,irregular:true,dwarf:v==="dwarf",size:512});
-  const D=galaxy.visualSize*3.2,group=new THREE.Group();
+  const texture=authoredTexture??canvasTexture(v==="andromeda"?paintAndromeda(31,1024)
+    :v==="milkyway"?paintGalaxyDisk({edge:"#a9c6ff",seed:MILKY_WAY_SEED,spin:MILKY_WAY_SPIN,rich:true,size:1024})
+    :v==="triangulum"?paintGalaxyDisk({edge:galaxy.color,seed,spin:2.1,loose:true,size:1024})
+    :paintGalaxyDisk({edge:galaxy.color,seed,irregular:true,dwarf:v==="dwarf",size:512}));
+  const D=galaxy.visualSize*2,group=new THREE.Group();
   // Orient relative to the VIEW direction, not world axes: both the default camera and the fly-to
   // camera look along ~(0,.55,.83), so composing "face the viewer, spin to a position angle, then
   // incline by tilt" makes each galaxy show its real published inclination on screen — Andromeda
@@ -328,19 +141,46 @@ function buildGalaxy(scene:THREE.Object3D,galaxy:NearbyGalaxy,position:THREE.Vec
   const qpa=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),galaxy.angle*1.3);
   const qt=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),galaxy.tilt);
   group.position.copy(position);group.quaternion.copy(qa).multiply(qpa).multiply(qt);scene.add(group);
-  const disk=new THREE.Mesh(new THREE.PlaneGeometry(D,D),new THREE.MeshBasicMaterial({map:texture,transparent:true,opacity:home?.95:.8,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  const disk=new THREE.Mesh(new THREE.PlaneGeometry(D,D),new THREE.MeshBasicMaterial({map:texture,transparent:true,opacity:authoredTexture?.86:home?.95:.8,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
   group.add(disk);
-  const glow=v==="andromeda"?"255,232,195":`${r},${g},${b}`;
-  const core=new THREE.Sprite(new THREE.SpriteMaterial({map:softDot(`rgba(${glow},.55)`,`rgba(${glow},0)`),transparent:true,opacity:v==="andromeda"?.5:home?.5:.4,depthWrite:false,blending:THREE.AdditiveBlending}));
-  core.position.copy(position);core.scale.setScalar(galaxy.visualSize*(v==="andromeda"?1.15:1.4));scene.add(core);
+  // Authored textures already contain calibrated cores. Procedural dwarfs still need a quiet
+  // central lift, but adding a generic bloom over M31/M33 erases the morphology we just gained.
+  if(!authoredTexture){
+    const glow=v==="andromeda"?"255,232,195":`${r},${g},${b}`;
+    const core=new THREE.Sprite(new THREE.SpriteMaterial({map:softDot(`rgba(${glow},.45)`,`rgba(${glow},0)`),transparent:true,opacity:.32,depthWrite:false,blending:THREE.AdditiveBlending}));
+    core.position.copy(position);core.scale.setScalar(galaxy.visualSize*1.2);scene.add(core);
+  }
 }
 
 function localPosition(galaxy:NearbyGalaxy){
-  // Galaxy sizes are enlarged for visibility, so true scaled distance would drop the Magellanic
-  // satellites *inside* the Milky Way's drawn disk — keep everything outside it, or flying to the
-  // LMC lands you in a wash of the Milky Way's own glow.
-  const radius=galaxy.distanceMly===0?0:Math.max(galaxy.distanceMly*15,(5.4+galaxy.visualSize)*1.8);
-  return new THREE.Vector3(Math.cos(galaxy.angle)*radius,galaxy.height,Math.sin(galaxy.angle)*radius);
+  return new THREE.Vector3(...galaxy.position);
+}
+
+function localDisplayPosition(galaxy:NearbyGalaxy,truePosition:THREE.Vector3,home:THREE.Vector3){
+  // The Clouds are genuinely close enough that enlarged glyphs would be swallowed by the Milky
+  // Way glyph. Their diamonds stay at the true coordinates; only their illustrated callouts move.
+  if(galaxy.id!=="lmc"&&galaxy.id!=="smc")return truePosition.clone();
+  return home.clone().add(truePosition.clone().sub(home).normalize().multiplyScalar(galaxy.id==="lmc"?8:10));
+}
+
+function localGroupGuides(scene:THREE.Scene,truePositions:Map<string,THREE.Vector3>,displayPositions:Map<string,THREE.Vector3>){
+  // A fitted, explicitly schematic envelope replaces the old arbitrary circle. It frames both
+  // dominant subgroups without pretending the Local Group has a hard spherical edge.
+  const points=Array.from({length:160},(_,index)=>{
+    const a=index/160*Math.PI*2,x=Math.cos(a)*61,z=Math.sin(a)*47,rotation=-.22;
+    return new THREE.Vector3(x*Math.cos(rotation)-z*Math.sin(rotation)-3,-2,x*Math.sin(rotation)+z*Math.cos(rotation)-9);
+  });
+  const envelope=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineDashedMaterial({color:"#7085ac",transparent:true,opacity:.18,dashSize:1.4,gapSize:1.8,depthWrite:false}));
+  envelope.computeLineDistances();scene.add(envelope);
+
+  const pairs:[[string,string],[string,string],[string,string],[string,string]]=[["milky-way","andromeda"],["andromeda","triangulum"],["milky-way","lmc"],["milky-way","smc"]];
+  const relationshipPoints=pairs.flatMap(([from,to])=>[truePositions.get(from)!,truePositions.get(to)!]);
+  const relationships=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(relationshipPoints),new THREE.LineDashedMaterial({color:"#8ba4cf",transparent:true,opacity:.13,dashSize:.65,gapSize:.85,depthWrite:false}));
+  relationships.computeLineDistances();scene.add(relationships);
+
+  const calloutPoints=["lmc","smc"].flatMap(id=>[truePositions.get(id)!,displayPositions.get(id)!]);
+  const callouts=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(calloutPoints),new THREE.LineDashedMaterial({color:"#b2c7eb",transparent:true,opacity:.28,dashSize:.35,gapSize:.42,depthWrite:false}));
+  callouts.computeLineDistances();scene.add(callouts);
 }
 
 export default function DeepSpace({mode,focusId}:{mode:DeepMode;focusId?:string}){
@@ -360,41 +200,106 @@ export default function DeepSpace({mode,focusId}:{mode:DeepMode;focusId?:string}
     let renderer:THREE.WebGLRenderer;
     try{renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance",logarithmicDepthBuffer:true});}
     catch{mount.classList.add("no-webgl");const timer=window.setTimeout(()=>setReady(true),0);apiRef.current={focus:setSelected,view:setViewMode};return()=>{window.clearTimeout(timer);apiRef.current=null;};}
-    renderer.setSize(mount.clientWidth,mount.clientHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.65));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.92;mount.appendChild(renderer.domElement);
+    // Full retina: the 1.65 cap read as upscale blur on the pixel-star grain, which is precisely
+    // what this scene sells. The raymarcher clips its march segment tightly, so dpr 2 is affordable.
+    renderer.setSize(mount.clientWidth,mount.clientHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.92;mount.appendChild(renderer.domElement);
     // Gentle bloom: a high threshold so only the very brightest cores glow, low strength so galaxies
-    // keep their structure instead of melting into white discs.
-    const composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scene,camera));composer.addPass(new UnrealBloomPass(new THREE.Vector2(mount.clientWidth,mount.clientHeight),.45,.5,.88));
+    // keep their structure instead of melting into white discs. The threshold sits above the
+    // volume's self-absorption ceiling, or the whole edge-on band blooms into a white smear.
+    const composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scene,camera));composer.addPass(new UnrealBloomPass(new THREE.Vector2(mount.clientWidth,mount.clientHeight),.4,.5,.92));
     const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.045;controls.enablePan=false;controls.minDistance=6;controls.maxDistance=mode==="galaxy"?170:190;controls.target.set(0,0,0);
-    const stars=starfield(scene,4200,mode==="galaxy"?380:500),labels:THREE.Sprite[]=[];const targets:THREE.Object3D[]=[];const positions=new Map<string,THREE.Vector3>();
+    const coarsePointer=matchMedia("(pointer: coarse)").matches;
+    const stars=starfield(scene,4200,mode==="galaxy"?380:500);
+    const labels:{id:string;sprite:THREE.Sprite;anchor:THREE.Vector3;worldRadius:number;markerPixelRadius:number}[]=[];
+    const markers:{id:string;sprite:THREE.Sprite;anchor:THREE.Vector3;pixelSize:number}[]=[];
+    const targets:THREE.Object3D[]=[];const positions=new Map<string,THREE.Vector3>();
+    let activeId=mode==="galaxy"?"solar-system":"milky-way",disposed=false;
+    const asyncTextures:THREE.Texture[]=[];
     if(mode==="galaxy"){
-      milkyWay(scene);
+      const quality=chooseGalaxyDetailQuality(renderer,mount.clientWidth,coarsePointer);
+      Promise.all([loadGalaxyDetailTexture(renderer,quality),loadGalaxyVolumeTexture(renderer)]).then(([detail,volume])=>{
+        if(disposed){detail.dispose();volume.dispose();return;}
+        asyncTextures.push(detail,volume);
+        milkyWay(scene,volume);
+        scene.add(createGalaxyDetailSurface(detail));
+      }).catch(error=>{
+        console.warn("[galaxy-detail] continuing with procedural fallback",error);
+        if(!disposed)milkyWay(scene);
+      }).finally(()=>{if(!disposed)setReady(true);});
       for(const region of GALACTIC_REGIONS){
         const position=new THREE.Vector3(...region.position);positions.set(region.id,position);
-        const marker=new THREE.Mesh(new THREE.SphereGeometry(region.id==="solar-system"?.72:.48,20,20),new THREE.MeshBasicMaterial({color:region.color}));marker.position.copy(position);marker.userData.id=region.id;scene.add(marker);targets.push(marker);
-        const ring=new THREE.Mesh(new THREE.RingGeometry(region.id==="solar-system"?1.05:.72,region.id==="solar-system"?1.18:.82,48),new THREE.MeshBasicMaterial({color:region.color,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));ring.rotation.x=-Math.PI/2;marker.add(ring);
-        const label=new THREE.Sprite(new THREE.SpriteMaterial({map:labelTexture(region.name,region.color),transparent:true,depthWrite:false}));label.position.copy(position).add(new THREE.Vector3(0,2.2,0));label.scale.set(12,2.6,1);scene.add(label);labels.push(label);
+        const target=new THREE.Mesh(new THREE.SphereGeometry(region.id==="solar-system"?1.2:.9,16,16),new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));target.position.copy(position);target.userData.id=region.id;scene.add(target);targets.push(target);
+        const marker=createGalacticMarker(region.markerKind,region.color);marker.position.copy(position);scene.add(marker);
+        const markerSize=region.markerKind==="home"?30:region.markerKind==="center"?26:20;markers.push({id:region.id,sprite:marker,anchor:position.clone(),pixelSize:markerSize});
+        const label=new THREE.Sprite(new THREE.SpriteMaterial({map:labelTexture(region.name,region.color),transparent:true,depthTest:false,depthWrite:false}));label.position.copy(position);label.renderOrder=3;scene.add(label);labels.push({id:region.id,sprite:label,anchor:position.clone(),worldRadius:0,markerPixelRadius:markerSize/2});
       }
     }else{
+      const authored:NearbyGalaxy[]=[];
+      const truePositions=new Map(NEARBY_GALAXIES.map(galaxy=>[galaxy.id,localPosition(galaxy)]));
+      const home=truePositions.get("milky-way")!;
       for(const galaxy of NEARBY_GALAXIES){
-        const position=localPosition(galaxy);positions.set(galaxy.id,position);buildGalaxy(scene,galaxy,position);
+        const coordinate=truePositions.get(galaxy.id)!,position=localDisplayPosition(galaxy,coordinate,home);positions.set(galaxy.id,position);
+        if(hasAuthoredLocalGroupTexture(galaxy))authored.push(galaxy);else buildGalaxy(scene,galaxy,position);
         const marker=new THREE.Mesh(new THREE.SphereGeometry(Math.max(1.2,galaxy.visualSize*.55),20,20),new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));marker.position.copy(position);marker.userData.id=galaxy.id;scene.add(marker);targets.push(marker);
-        const label=new THREE.Sprite(new THREE.SpriteMaterial({map:labelTexture(galaxy.name,galaxy.color),transparent:true,depthWrite:false}));label.position.copy(position).add(new THREE.Vector3(0,galaxy.visualSize+2,0));label.scale.set(13,2.8,1);scene.add(label);labels.push(label);
+        const locator=createGalacticMarker(galaxy.id==="milky-way"?"home":"region",galaxy.color);locator.position.copy(coordinate);scene.add(locator);
+        const markerSize=galaxy.id==="milky-way"?27:18;markers.push({id:galaxy.id,sprite:locator,anchor:coordinate.clone(),pixelSize:markerSize});
+        const label=new THREE.Sprite(new THREE.SpriteMaterial({map:labelTexture(galaxy.name,galaxy.color),transparent:true,depthTest:false,depthWrite:false}));label.position.copy(position).add(new THREE.Vector3(0,galaxy.visualSize+2,0));label.scale.set(13,2.8,1);label.renderOrder=3;scene.add(label);labels.push({id:galaxy.id,sprite:label,anchor:position.clone(),worldRadius:galaxy.visualSize*1.1,markerPixelRadius:0});
       }
-      const radius=46;const boundary=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(Array.from({length:180},(_,index)=>new THREE.Vector3(Math.cos(index/180*Math.PI*2)*radius,0,Math.sin(index/180*Math.PI*2)*radius))),new THREE.LineBasicMaterial({color:"#7485aa",transparent:true,opacity:.17}));scene.add(boundary);
+      localGroupGuides(scene,truePositions,positions);
+      const quality=chooseGalaxyDetailQuality(renderer,mount.clientWidth,coarsePointer);
+      Promise.allSettled(authored.map(async galaxy=>({galaxy,texture:await loadLocalGroupTexture(renderer,galaxy,quality)}))).then(results=>{
+        if(disposed){for(const result of results)if(result.status==="fulfilled")result.value.texture.dispose();return;}
+        for(const [index,result] of results.entries()){
+          const galaxy=authored[index],position=positions.get(galaxy.id)!;
+          if(result.status==="fulfilled"){
+            asyncTextures.push(result.value.texture);buildGalaxy(scene,galaxy,position,result.value.texture);
+          }else{
+            console.warn(`[local-group] procedural fallback for ${galaxy.id}`,result.reason);buildGalaxy(scene,galaxy,position);
+          }
+        }
+      }).finally(()=>{if(!disposed)setReady(true);});
     }
     let fly:{start:number;from:THREE.Vector3;to:THREE.Vector3;targetFrom:THREE.Vector3;targetTo:THREE.Vector3}|null=null;
-    function focus(id:string){const target=positions.get(id);if(!target)return;setSelected(id);const vs=mode==="local"?NEARBY_GALAXIES.find(galaxy=>galaxy.id===id)?.visualSize??3:0;const offset=mode==="galaxy"?new THREE.Vector3(0,14,18):new THREE.Vector3(0,12,18).multiplyScalar(Math.min(2.1,Math.max(.85,vs/3)));fly={start:performance.now(),from:camera.position.clone(),to:target.clone().add(offset),targetFrom:controls.target.clone(),targetTo:target.clone()};}
+    function focus(id:string){const target=positions.get(id);if(!target)return;activeId=id;setSelected(id);const vs=mode==="local"?NEARBY_GALAXIES.find(galaxy=>galaxy.id===id)?.visualSize??3:0;const offset=mode==="galaxy"?new THREE.Vector3(0,14,18):new THREE.Vector3(0,12,18).multiplyScalar(Math.min(2.1,Math.max(.85,vs/3)));fly={start:performance.now(),from:camera.position.clone(),to:target.clone().add(offset),targetFrom:controls.target.clone(),targetTo:target.clone()};}
     function changeView(next:ViewMode){setViewMode(next);const to=next==="top"?new THREE.Vector3(0,mode==="galaxy"?105:115,.01):next==="edge"?new THREE.Vector3(0,3,mode==="galaxy"?110:125):new THREE.Vector3(0,mode==="galaxy"?58:64,mode==="galaxy"?78:92);fly={start:performance.now(),from:camera.position.clone(),to,targetFrom:controls.target.clone(),targetTo:new THREE.Vector3()};}
     apiRef.current={focus,view:changeView};
     const down=new THREE.Vector2();let frame=0;const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
     function pointerDown(event:PointerEvent){down.set(event.clientX,event.clientY);}
     function pointerUp(event:PointerEvent){if(down.distanceTo(new THREE.Vector2(event.clientX,event.clientY))>7)return;const rect=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-rect.left)/rect.width*2-1,-((event.clientY-rect.top)/rect.height)*2+1);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(targets,false)[0];if(hit)focus(hit.object.userData.id);}
     renderer.domElement.addEventListener("pointerdown",pointerDown);renderer.domElement.addEventListener("pointerup",pointerUp);
-    function animate(now:number){frame=requestAnimationFrame(animate);controls.update();stars.rotation.y+=.000018;if(fly){const t=Math.min(1,(now-fly.start)/1100),ease=t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;camera.position.lerpVectors(fly.from,fly.to,ease);controls.target.lerpVectors(fly.targetFrom,fly.targetTo,ease);if(t>=1)fly=null;}for(const label of labels)label.quaternion.copy(camera.quaternion);composer.render();}
-    animate(performance.now());const readyTimer=window.setTimeout(()=>setReady(true),80);
+    const cameraScreenUp=new THREE.Vector3(),labelPosition=new THREE.Vector3(),projected=new THREE.Vector3();
+    function placeOverlaysInScreenSpace(now:number){
+      const viewportWidth=Math.max(1,renderer.domElement.clientWidth),viewportHeight=Math.max(1,renderer.domElement.clientHeight),pixelHeight=coarsePointer?32:38;
+      const perspectiveFactor=2*Math.tan(THREE.MathUtils.degToRad(camera.fov*.5))/viewportHeight;
+      cameraScreenUp.set(0,1,0).applyQuaternion(camera.quaternion).normalize();
+      for(const marker of markers){
+        const worldPerPixel=Math.max(1e-10,camera.position.distanceTo(marker.anchor)*perspectiveFactor),active=marker.id===activeId;
+        const pulse=active?1.08+Math.sin(now*.004)*.05:1,size=worldPerPixel*marker.pixelSize*pulse;
+        marker.sprite.position.copy(marker.anchor);marker.sprite.scale.set(size,size,1);(marker.sprite.material as THREE.SpriteMaterial).opacity=active?1:.72;
+      }
+      for(const {sprite,anchor,worldRadius,markerPixelRadius} of labels){
+        const worldPerPixel=Math.max(1e-10,camera.position.distanceTo(anchor)*perspectiveFactor),height=worldPerPixel*pixelHeight;
+        labelPosition.copy(anchor).addScaledVector(cameraScreenUp,worldRadius+worldPerPixel*(markerPixelRadius+5+pixelHeight*.5));
+        sprite.position.copy(labelPosition);sprite.scale.set(height*4.57,height,1);
+      }
+      const priority=(id:string)=>id===activeId?0:id==="solar-system"||id==="milky-way"?1:id==="center"||id==="andromeda"?2:3;
+      const occupied:{left:number;right:number;top:number;bottom:number}[]=[];
+      for(const label of [...labels].sort((a,b)=>priority(a.id)-priority(b.id))){
+        projected.copy(label.sprite.position).project(camera);
+        const x=(projected.x*.5+.5)*viewportWidth,y=(-projected.y*.5+.5)*viewportHeight,width=pixelHeight*4.1,pad=7;
+        const rect={left:x-width/2-pad,right:x+width/2+pad,top:y-pixelHeight/2-pad,bottom:y+pixelHeight/2+pad};
+        const onScreen=projected.z>-1&&projected.z<1&&rect.right>0&&rect.left<viewportWidth&&rect.bottom>0&&rect.top<viewportHeight;
+        const blocked=onScreen&&occupied.some(other=>rect.left<other.right&&rect.right>other.left&&rect.top<other.bottom&&rect.bottom>other.top);
+        const targetOpacity=onScreen&&!blocked?1:0,material=label.sprite.material as THREE.SpriteMaterial;
+        material.opacity=THREE.MathUtils.lerp(material.opacity,targetOpacity,.16);
+        if(targetOpacity>0)occupied.push(rect);
+      }
+    }
+    function animate(now:number){frame=requestAnimationFrame(animate);controls.update();stars.rotation.y+=.000018;if(fly){const t=Math.min(1,(now-fly.start)/1100),ease=t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;camera.position.lerpVectors(fly.from,fly.to,ease);controls.target.lerpVectors(fly.targetFrom,fly.targetTo,ease);if(t>=1)fly=null;}placeOverlaysInScreenSpace(now);composer.render();}
+    animate(performance.now());
     function resize(){const width=renderer.domElement.parentElement?.clientWidth??1,height=renderer.domElement.parentElement?.clientHeight??1;camera.aspect=width/height;camera.updateProjectionMatrix();renderer.setSize(width,height);composer.setSize(width,height);}
     const observer=new ResizeObserver(resize);observer.observe(mount);
-    return()=>{window.clearTimeout(readyTimer);cancelAnimationFrame(frame);observer.disconnect();renderer.domElement.removeEventListener("pointerdown",pointerDown);renderer.domElement.removeEventListener("pointerup",pointerUp);controls.dispose();composer.dispose();scene.traverse(object=>{(object as THREE.Mesh).geometry?.dispose();const material=(object as THREE.Mesh).material;for(const entry of Array.isArray(material)?material:material?[material]:[]){for(const value of Object.values(entry))if(value instanceof THREE.Texture)value.dispose();entry.dispose();}});scene.clear();renderer.dispose();mount.replaceChildren();apiRef.current=null;};
+    return()=>{disposed=true;cancelAnimationFrame(frame);observer.disconnect();renderer.domElement.removeEventListener("pointerdown",pointerDown);renderer.domElement.removeEventListener("pointerup",pointerUp);controls.dispose();composer.dispose();scene.traverse(object=>{(object as THREE.Mesh).geometry?.dispose();const material=(object as THREE.Mesh).material;for(const entry of Array.isArray(material)?material:material?[material]:[]){for(const value of Object.values(entry))if(value instanceof THREE.Texture)value.dispose();entry.dispose();}});for(const texture of asyncTextures)texture.dispose();scene.clear();renderer.dispose();mount.replaceChildren();apiRef.current=null;};
   },[mode]);
 
   function choose(id:string){setSelected(id);apiRef.current?.focus(id);}

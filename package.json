@@ -11,6 +11,8 @@
     "build": "npm run catalog && next build",
     "catalog": "node --experimental-strip-types scripts/emit-catalog.mjs && node --experimental-strip-types scripts/emit-orbit-goldens.mjs",
     "dev": "next dev",
+    "galaxy-maps": "node --experimental-strip-types scripts/bake-galaxy-maps.mjs && node --experimental-strip-types scripts/bake-local-group.mjs",
+    "local-group-maps": "node --experimental-strip-types scripts/bake-local-group.mjs",
     "lint": "eslint .",
     "narration": "node --experimental-strip-types scripts/render-narration.mjs",
     "preview": "npx --yes serve out",
@@ -23,6 +25,7 @@
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@napi-rs/canvas": "^0.1.65",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
