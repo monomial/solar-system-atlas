@@ -48,6 +48,24 @@ struct Body: Decodable {
     let moon: MoonOrbit?
 }
 
+/// Mirrors `NearbyGalaxy` in `app/cosmic.ts` — schematic Local Group coordinates (one unit is
+/// 50,000 light-years, distances proportional, diameters enlarged for visibility) for the tvOS
+/// finale's last beat. Same generated-JSON rule as the orbital elements: one source of truth.
+struct LocalGroupGalaxy: Decodable {
+    let id: String
+    let name: String
+    let kind: String
+    let distanceMly: Double
+    let position: [Double]
+    let angle: Double
+    let diameter: String
+    let fact: String
+    let color: String
+    let visualSize: Double
+    let variant: String
+    let tilt: Double
+}
+
 struct Catalog: Decodable {
     let planets: [Body]
     let dwarfs: [Body]
@@ -55,6 +73,8 @@ struct Catalog: Decodable {
     let smallBodies: [Body]
     /// Kid-facing lines, several per body, spoken aloud. Written for the ear — see app/bodies.ts.
     let narration: [String: [String]]
+    /// The finale's Local Group beat. Missing in an older bodies.json ⇒ the beat is skipped.
+    let localGroup: [LocalGroupGalaxy]?
 
     /// The Sun is `planets[0]` and carries no elements — it sits at the origin.
     var sun: Body { planets[0] }

@@ -143,6 +143,7 @@ private struct OrreryView: UIViewRepresentable {
         let view = SCNView()
         view.scene = orrery.makeScene()
         view.delegate = orrery
+        orrery.attach(view: view)   // the finale caps the frame rate for its raymarch, then restores it
         view.isPlaying = true            // ambient: never let the render loop idle
         view.rendersContinuously = true
         view.antialiasingMode = .multisampling4X

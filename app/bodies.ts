@@ -112,7 +112,7 @@ export const ORBITING_BODIES=[...PLANETS.slice(1),...DWARFS,...SMALL_BODIES];
 // - Still TRUE. Simplifying is not fibbing, and a child who later finds out you fudged it learns
 //   the wrong lesson about science. Where the real number is startling, use the real number.
 //   Where the honest answer is "we changed our minds", say that — see Pluto.
-export const NARRATION: Partial<Record<BodyName | "Milky Way", string[]>> = {
+export const NARRATION: Partial<Record<BodyName | "Milky Way" | "Local Group", string[]>> = {
   Sun: [
     "The Sun is a star. The same kind of star as the little ones you see at night. It only looks big because it is the closest one to us.",
     "A million Earths would fit inside the Sun. A million.",
@@ -367,5 +367,12 @@ export const NARRATION: Partial<Record<BodyName | "Milky Way", string[]>> = {
     "This is the Milky Way, our galaxy. Every star you have ever seen at night lives in here, and so do we.",
     "Everything you just visited, the Sun and all its worlds together, is smaller than one tiny dot of light in this picture. Space is mostly space.",
     "The Sun carries all its planets around the middle of the galaxy in one enormous circle. One lap takes two hundred and thirty million years. The last time we were here, the dinosaurs were just beginning.",
+  ],
+  // The finale's last beat: the Local Group, with Andromeda as the star of it. Same rule as the
+  // Milky Way lines — the words carry the scale jump the picture cannot honestly show.
+  "Local Group": [
+    "Our galaxy is not alone. It lives in a little family of galaxies called the Local Group. The other great spiral is Andromeda.",
+    "Andromeda's light travels for two and a half million years to reach us. When you find it in the sky, you are seeing an enormously long time into the past.",
+    "Andromeda and the Milky Way are slowly drifting toward each other. Billions of years from now, they will swirl together and become one enormous galaxy.",
   ],
 };

@@ -15,7 +15,12 @@ using namespace metal;
 //  · the emission PNG is pre-flattened onto black (rgb·alpha at bake time), so no alpha multiply;
 //  · no tone mapping here — SceneKit's HDR camera (wantsHDR + bloom in OrreryScene) grades it;
 //  · output is premultiplied color+alpha, which is SceneKit's native .alpha blend convention,
-//    scaled by an intensity uniform the finale uses to fade the whole volume in and out.
+//    scaled by an intensity uniform the finale uses to fade the whole volume in and out;
+//  · TUNED DOWN for the Apple TV GPU, deliberately diverging from the web's fixed 64 steps:
+//    the step count scales with the ray's actual segment length (a top-down ray crosses ~10
+//    units of slab, not the full chord, and fixed-N was spending 72 steps on it), and the
+//    blurred grazing-angle emission sample is hoisted out of the loop. Measured on hardware:
+//    fixed 72-step, 3-samples-per-step marching ran the finale at ~10 fps at 4K.
 
 struct NodeBuffer {
     float4x4 modelTransform;
@@ -50,7 +55,8 @@ constant float MAP = 122.0;   // span of the painted maps
 constant float HY  = 4.0;     // thin slab half-height marched
 constant float CYL = 58.0;    // radial bound
 constant float BAR = 2.0595;  // bar position angle, 118°
-constant int   N   = 72;
+constant int   NMAX = 48;   // ceiling for the longest in-plane chords
+constant int   NMIN = 24;   // floor: still ~2.5 steps per emission scale height top-down
 constant float GAIN  = 0.34;
 constant float DUSTK = 2.0;
 constant float BULGE = 0.035;
@@ -102,7 +108,11 @@ fragment float4 galaxyFragment(VertexOut in [[stage_in]],
     t0 = max(t0, 0.0);
     if (t1 <= t0) return float4(0);
 
-    float dt = (t1 - t0) / float(N);
+    // Steps proportional to the segment actually marched: a near-vertical ray crosses ~10 local
+    // units of slab and needs nowhere near what a grazing 116-unit chord does. Per-pixel jitter
+    // below turns what banding the low end would show into fine grain.
+    int steps = clamp(int((t1 - t0) * 0.55), NMIN, NMAX);
+    float dt = (t1 - t0) / float(steps);
     float t = t0 + dt * ign(in.position.xy);
     float cb = cos(BAR), sb = sin(BAR);
     float3 col = float3(0.0);
@@ -116,7 +126,15 @@ fragment float4 galaxyFragment(VertexOut in [[stage_in]],
     float2 gy = float2(dfdy(pm.x), -dfdy(pm.y)) / MAP;
     float grazing = smoothstep(0.12, 0.45, abs(rd.y));
 
-    for (int i = 0; i < N; i++) {
+    // The blurred sample only matters at grazing angles, where the emission is low-frequency
+    // anyway — one sample at the midplane crossing stands in for the whole ray, halving the
+    // texture traffic of the march. Top-down (grazing == 1) it is skipped and the mix is exact.
+    float2 uvm = float2(pm.x / MAP + 0.5, 0.5 - pm.y / MAP);
+    float3 softE = grazing < 0.999
+        ? emissionMap.sample(smp, uvm, gradient2d(gx * 12.0, gy * 12.0)).rgb
+        : float3(0.0);
+
+    for (int i = 0; i < steps; i++) {
         float3 p = ro + rd * t; t += dt;
         float r = length(p.xz);
         float dy = p.y - rippleAt(r, atan2(p.z, p.x + 1e-6));
@@ -128,8 +146,7 @@ fragment float4 galaxyFragment(VertexOut in [[stage_in]],
 
         float2 uv = float2(p.x / MAP + 0.5, 0.5 - p.z / MAP);
         float3 sharp = emissionMap.sample(smp, uv, gradient2d(gx, gy)).rgb;
-        float3 soft  = emissionMap.sample(smp, uv, gradient2d(gx * 12.0, gy * 12.0)).rgb;
-        float3 e = mix(soft, sharp, grazing) * (vert / norm) * GAIN;
+        float3 e = mix(softE, sharp, grazing) * (vert / norm) * GAIN;
 
         // Triaxial bulge (bar frame) + hot nucleus, column-calibrated amplitudes.
         float bu = p.x * cb + p.z * sb, bv = -p.x * sb + p.z * cb;

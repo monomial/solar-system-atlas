@@ -11,6 +11,7 @@ import { copyFile, mkdir, readdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { DWARFS, MOONS, NARRATION, PLANETS, SMALL_BODIES } from "../app/bodies.ts";
+import { NEARBY_GALAXIES } from "../app/cosmic.ts";
 
 const out = fileURLToPath(new URL("../tvos/HeliosTV/Media/bodies.json", import.meta.url));
 
@@ -24,6 +25,8 @@ const catalog = {
   moons: MOONS,
   smallBodies: SMALL_BODIES,
   narration: NARRATION,
+  // The tvOS finale's Local Group beat draws these — same single-source rule as the elements.
+  localGroup: NEARBY_GALAXIES,
 };
 
 await mkdir(new URL("../tvos/HeliosTV/Media/", import.meta.url), { recursive: true });
@@ -36,6 +39,13 @@ const resourceDir = new URL("../tvos/HeliosTV/Media/", import.meta.url);
 const textures = (await readdir(textureDir)).filter((file) => /\.(webp|png)$/.test(file));
 for (const file of textures)
   await copyFile(new URL(file, textureDir), new URL(file, resourceDir));
+
+// Authored Local Group galaxy portraits for the finale's last beat. 1K is plenty: on a TV these
+// planes are small against the pull-back, and the 2K set exists for the web's close-up mode.
+const localGroupDir = new URL("../public/textures/local-group/", import.meta.url);
+const localGroupTextures = (await readdir(localGroupDir)).filter((file) => /-1024\.webp$/.test(file));
+for (const file of localGroupTextures)
+  await copyFile(new URL(file, localGroupDir), new URL(`local-group-${file}`, resourceDir));
 
 // Restore any rendered narration from the cache. The clips are real money, so a catalog rebuild
 // must never silently drop them and force a re-render — see scripts/render-narration.mjs.
