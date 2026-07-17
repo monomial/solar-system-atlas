@@ -86,11 +86,21 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     /// camera plus the shrink is what reads as continued zoom, and true scale would put
     /// Andromeda beyond zFar. Same schematic-distances-enlarged-diameters deal as the web.
     private static let localGroupScale = 30.0
-    /// The finale renders a full-screen raymarch; the rest of the app renders spheres. The view
-    /// is capped to cinema pacing for the finale so hardware headroom becomes steadiness rather
-    /// than a fluctuating 35–50 fps, and restored after. Attached by OrreryView.
+    /// The finale renders a full-screen raymarch; the rest of the app renders spheres. Two
+    /// hardware measures on a real Apple TV drive what happens here (see git history for the
+    /// [perf] traces): the volume is fill-bound, so for the finale's duration the view drops to
+    /// half resolution (4× fewer marched pixels — soft glow plus motion plus bloom hide it on a
+    /// TV, and the SwiftUI caption is not part of this view) and caps at cinema pacing so the
+    /// headroom becomes steadiness. Both restored on exit. And the first draw of a hidden
+    /// SCNProgram node compiles its Metal pipeline and uploads its textures — a 300–430 ms hitch
+    /// if it happens the frame the finale unhides — so attach() pre-warms both nodes instead.
     private weak var sceneView: SCNView?
-    func attach(view: SCNView) { sceneView = view }
+    private var nominalScale: CGFloat = 0
+    func attach(view: SCNView) {
+        sceneView = view
+        nominalScale = view.contentScaleFactor
+        view.prepare([galaxyNode, localGroupNode], completionHandler: nil)
+    }
     /// A shuffle bag of fact indices per body, and the last one played. Every fact is handed out
     /// once in random order before any repeats, then the bag reshuffles — with no fact landing
     /// twice in a row across the reshuffle. Mirrors the web app's ShuffleBag: random each cycle,
@@ -836,6 +846,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         pendingLine = nil
         caption = nil
         sceneView?.preferredFramesPerSecond = 30
+        if nominalScale > 0 { sceneView?.contentScaleFactor = nominalScale * 0.5 }
         setSystemFaded(true, duration: 3)
         galaxyNode.removeAllActions()
         galaxyNode.isHidden = false
@@ -926,6 +937,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         finale = .none
         caption = nil
         sceneView?.preferredFramesPerSecond = 60
+        if nominalScale > 0 { sceneView?.contentScaleFactor = nominalScale }
         galaxyNode.removeAllActions()
         galaxyNode.runAction(.sequence([.fadeOut(duration: 3), .hide()]))
         localGroupNode.removeAllActions()
@@ -941,6 +953,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         guard finale != .none else { return }
         finale = .none
         sceneView?.preferredFramesPerSecond = 60
+        if nominalScale > 0 { sceneView?.contentScaleFactor = nominalScale }
         galaxyNode.removeAllActions()
         galaxyNode.runAction(.sequence([.fadeOut(duration: 0.6), .hide()]))
         localGroupNode.removeAllActions()
