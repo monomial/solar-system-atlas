@@ -112,7 +112,7 @@ export const ORBITING_BODIES=[...PLANETS.slice(1),...DWARFS,...SMALL_BODIES];
 // - Still TRUE. Simplifying is not fibbing, and a child who later finds out you fudged it learns
 //   the wrong lesson about science. Where the real number is startling, use the real number.
 //   Where the honest answer is "we changed our minds", say that — see Pluto.
-export const NARRATION: Partial<Record<BodyName, string[]>> = {
+export const NARRATION: Partial<Record<BodyName | "Milky Way", string[]>> = {
   Sun: [
     "The Sun is a star. The same kind of star as the little ones you see at night. It only looks big because it is the closest one to us.",
     "A million Earths would fit inside the Sun. A million.",
@@ -358,5 +358,14 @@ export const NARRATION: Partial<Record<BodyName, string[]>> = {
     "Triton goes around Neptune backwards, the wrong way. Neptune probably caught it, long ago, from somewhere else.",
     "Triton is one of the coldest places in the whole solar system, and yet it has geysers that spray dark plumes into the sky.",
     "Triton is slowly spiralling inward, and one far-off day Neptune's pull will tear it into a ring.",
+  ],
+  // Spoken once per loop, at the tvOS tour finale, as the camera pulls back until the whole
+  // galaxy resolves. The one idea each line must carry: everything the tour just visited is a
+  // single dot of light in here. The scales are NOT continuous (sqrt-compressed orrery, schematic
+  // galaxy) — the words carry the jump instead of the picture pretending there isn't one.
+  "Milky Way": [
+    "This is the Milky Way, our galaxy. Every star you have ever seen at night lives in here, and so do we.",
+    "Everything you just visited, the Sun and all its worlds together, is smaller than one tiny dot of light in this picture. Space is mostly space.",
+    "The Sun carries all its planets around the middle of the galaxy in one enormous circle. One lap takes two hundred and thirty million years. The last time we were here, the dinosaurs were just beginning.",
   ],
 };

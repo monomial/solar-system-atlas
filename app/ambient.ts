@@ -46,7 +46,7 @@ export function speakLine(name: BodyName, lineIndex: number, text: string, onEnd
   const finish = () => { if (!done) { done = true; onEnd(); } };
   const ceiling = window.setTimeout(finish, MAX_LINE_MS);
 
-  const clip = new Audio(`${ASSET_BASE}/narration/narration-${name.toLowerCase()}-${lineIndex}.m4a`);
+  const clip = new Audio(`${ASSET_BASE}/narration/narration-${name.toLowerCase().replace(/\s+/g, "-")}-${lineIndex}.m4a`);
   clip.addEventListener("ended", () => { window.clearTimeout(ceiling); finish(); });
   clip.addEventListener("error", () => {
     // No clip bundled — fall back to the browser voice so the line still speaks.

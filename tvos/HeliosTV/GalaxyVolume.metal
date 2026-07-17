@@ -1,6 +1,7 @@
 #include <metal_stdlib>
-#include <SceneKit/scn_metal>
 using namespace metal;
+// scn_metal leans on bare float4x4 etc., so the namespace must be open before it arrives.
+#include <SceneKit/scn_metal>
 
 // The volumetric Milky Way — the Metal port of the web's raymarcher (app/galaxyVolume.ts).
 // Same 2.5D model, same constants, same march: the painted emission/dust maps (baked to PNGs by

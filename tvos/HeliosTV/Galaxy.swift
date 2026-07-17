@@ -17,7 +17,7 @@ enum Galaxy {
 
     /// Galaxy-local position of the Sun: azimuth 90° at radius 26 (26,000 ly), matching the web
     /// atlas's solar-system marker and the Orion Spur in the painted maps.
-    static let sunLocal = SCNVector3(0, 0.8, 26)
+    static let sunLocal = SIMD3<Double>(0, 0.8, 26)
 
     static func makeNode() -> SCNNode {
         let box = SCNBox(width: 124, height: 8, length: 124, chamferRadius: 0)
@@ -28,7 +28,7 @@ enum Galaxy {
         program.isOpaque = false
         // node.opacity → shader intensity, so SCNAction.fadeIn/fadeOut drive the volume.
         program.handleBinding(ofBufferNamed: "uniforms", frequency: .perNode) { stream, node, _, _ in
-            var intensity = Float(node?.opacity ?? 1)
+            var intensity = Float(node.opacity)
             stream.writeBytes(&intensity, count: MemoryLayout<Float>.size)
         }
 

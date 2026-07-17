@@ -62,6 +62,21 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
     private let narrator = Narrator()
     private let audio = AmbientAudio()
+
+    // MARK: - Finale
+    //
+    // After Eris, once per loop, the tour pulls back until the whole galaxy resolves: the planets
+    // and orbit lines fade, the volumetric Milky Way fades in around the camera, and the flight
+    // recedes to a vantage that frames the disk. One narration line lands, then everything fades
+    // back and the loop returns to the Sun. The orrery and the galaxy use incompatible display
+    // scales (sqrt-compressed AU vs schematic light-years), so this is a staged crossfade — the
+    // narration carries the scale jump; the picture never pretends the zoom is continuous.
+    private enum Finale { case none, flying, dwelling }
+    private var finale: Finale = .none
+    private let galaxyNode = Galaxy.makeNode()
+    /// One galaxy unit (1,000 ly) in orrery world units. Sized so the disk dwarfs Eris's orbit
+    /// (radius ~240) without leaving the starfield shell or the camera's zFar.
+    private static let galaxyScale = 8.0
     /// A shuffle bag of fact indices per body, and the last one played. Every fact is handed out
     /// once in random order before any repeats, then the bag reshuffles — with no fact landing
     /// twice in a row across the reshuffle. Mirrors the web app's ShuffleBag: random each cycle,
@@ -161,10 +176,16 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         addPlanets()
         addMoons()
         addCamera()
+        addGalaxy()
 
         featured = tour.compactMap { name in
             (catalog.planets + catalog.dwarfs).first { $0.name == name }
         }
+        #if DEBUG
+        // Start the loop at Eris so the galaxy finale is seconds away, not a full tour away.
+        // Verification-only, like HELIOS_MUTE.
+        if ProcessInfo.processInfo.environment["HELIOS_FINALE"] != nil { featuredIndex = featured.count - 1 }
+        #endif
         scene.rootNode.addChildNode(focusTarget)
         return scene
     }
@@ -197,6 +218,17 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         cameraNode.constraints = [lookAt]
 
         scene.rootNode.addChildNode(cameraNode)
+    }
+
+    /// The galaxy is parked in the scene from the start, hidden, positioned so its Sun-point
+    /// (galaxy-local azimuth 90°, radius 26) lands exactly on the orrery's origin. The Sun node is
+    /// deliberately NOT faded during the finale: at this scale it reads as a single blooming dot
+    /// sitting on the Orion Spur — the "everything you saw is a dot here" the narration points at.
+    private func addGalaxy() {
+        let s = Self.galaxyScale
+        galaxyNode.simdScale = SIMD3<Float>(repeating: Float(s))
+        galaxyNode.simdPosition = SIMD3<Float>(-Galaxy.sunLocal * s)
+        scene.rootNode.addChildNode(galaxyNode)
     }
 
     private func addSun() {
@@ -471,6 +503,12 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         scene.rootNode.addChildNode(node)
     }
 
+    /// Stable clip name for a narration line — spaces become hyphens ("Milky Way" → milky-way),
+    /// matching scripts/render-narration.mjs. The audit and the players must never disagree.
+    private static func clipID(_ name: String, _ index: Int) -> String {
+        "narration-\(name.lowercased().replacingOccurrences(of: " ", with: "-"))-\(index)"
+    }
+
     /// A missing clip does not crash — it quietly downgrades to the robot voice, which looks and
     /// behaves like a perfectly healthy app. That is exactly how the first render shipped zero of
     /// its 73 clips without anyone noticing. So count them, out loud.
@@ -479,7 +517,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         for (name, lines) in catalog.narration {
             for index in lines.indices {
                 expected += 1
-                let id = "narration-\(name.lowercased())-\(index)"
+                let id = Self.clipID(name, index)
                 let url = Bundle.main.url(forResource: id, withExtension: "m4a", subdirectory: "Media")
                     ?? Bundle.main.url(forResource: id, withExtension: "m4a")
                 if url != nil { found += 1 }
@@ -552,8 +590,9 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         let live = isLive
         if clock.date != date || clock.isLive != live { clock = Clock(date: date, isLive: live) }
         // Keep the caption's distance honest while the clock moves under it — but only once the
-        // card is actually up. Mid-flight there is deliberately no card to refresh.
-        if caption != nil, let body = currentBody, !live || isScrubbing {
+        // card is actually up. Mid-flight there is deliberately no card to refresh, and the
+        // galaxy card must not be overwritten with the world the tour last touched.
+        if caption != nil, finale == .none, let body = currentBody, !live || isScrubbing {
             caption = makeCaption(for: body, at: date)
         }
 
@@ -657,6 +696,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     // MARK: - Input
 
     func beginScrub() {
+        cancelFinale()
         narrator.stop()
         audio.setNarrating(false)
         isScrubbing = true
@@ -685,6 +725,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     /// always mean the same thing: move through the solar system.
     func step(by delta: Int) {
         guard !featured.isEmpty else { return }
+        cancelFinale()
         if inDeepDive { showMoonFamily(nil); deepParent = nil; deepFamily = [] }
         narrator.stop()
         audio.setNarrating(false)
@@ -698,6 +739,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     /// back to hold the whole system, then walks the family reading each one's fact.
     func enterDeepDive() {
         guard !inDeepDive, let body = currentBody else { return }
+        cancelFinale()
         narrator.stop()
         audio.setNarrating(false)
         ambientPaused = true
@@ -752,8 +794,91 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     private var isHoming = false
 
     private func advance(to date: Date) {
+        // The dwell on the galaxy has run its course: fade home and start the loop over.
+        if finale == .dwelling { endFinale(); return }
+        // Eris was the last world. Before wrapping to the Sun, pull back and show where all of it lives.
+        if finale == .none, !featured.isEmpty, featuredIndex == featured.count - 1 { beginFinale(); return }
         featuredIndex = (featuredIndex + 1) % featured.count
         flyToCurrent(at: date)
+    }
+
+    // MARK: - Finale beats
+
+    private func beginFinale() {
+        finale = .flying
+        narrator.stop()
+        audio.setNarrating(false)
+        pendingLine = nil
+        caption = nil
+        setSystemFaded(true, duration: 3)
+        galaxyNode.removeAllActions()
+        galaxyNode.isHidden = false
+        // The camera starts INSIDE the volume, so the fade-in reads as the sky itself turning
+        // milky before the pull-back reveals what that milk is. Slightly slower than the system
+        // fade, so the planets are gone before the galaxy fully arrives.
+        galaxyNode.runAction(.fadeIn(duration: 5))
+
+        let center = SIMD3<Double>(galaxyNode.simdPosition)
+        let from = SIMD3<Double>(cameraNode.simdPosition)
+        // Framing: disk radius is 56·scale; at 46° fov the whole disk wants ~2.4× that distance,
+        // approached from ~37° above the plane — the web atlas's "tilted" vantage.
+        let vantage = center + SIMD3<Double>(0, 56 * Self.galaxyScale * 1.6, 56 * Self.galaxyScale * 2.1)
+        let travel = simd_distance(from, vantage)
+        // One long unhurried recession — deliberately past flyTo's 15s ceiling; this is the beat
+        // the whole loop has been building to and it must not feel rushed.
+        let midpoint = (from + vantage) * 0.5
+        let control = midpoint + SIMD3<Double>(0, travel * 0.18, 0)
+        flight = Flight(from: from, control: control, to: vantage,
+                        aimFrom: SIMD3<Double>(focusTarget.simdPosition), aimTo: center,
+                        start: lastFrameAt, duration: 18)
+        flightEndsAt = lastFrameAt + 18
+        nextChangeAt = flightEndsAt + Self.maxDwell
+    }
+
+    /// The camera has settled on the full disk. Speak one Milky Way line, card and voice together.
+    private func finaleArrive() {
+        finale = .dwelling
+        let (text, index) = nextLine(name: "Milky Way",
+                                     fallback: "This is the Milky Way, our galaxy. Every star you have ever seen lives in here.")
+        caption = Caption(name: "THE MILKY WAY", kind: "Barred spiral galaxy · home",
+                          distance: "The Sun is 26,000 light-years from its centre", fact: text)
+        audio.setNarrating(true)
+        narrator.speak(text, clipID: Self.clipID("Milky Way", index)) { [weak self] in
+            guard let self else { return }
+            self.audio.setNarrating(false)
+            self.nextChangeAt = self.lastFrameAt + Self.pauseAfterNarration
+        }
+    }
+
+    private func endFinale() {
+        finale = .none
+        caption = nil
+        galaxyNode.removeAllActions()
+        galaxyNode.runAction(.sequence([.fadeOut(duration: 3), .hide()]))
+        setSystemFaded(false, duration: 3)
+        featuredIndex = 0
+        flyToCurrent(at: displayDate)
+    }
+
+    /// Any interaction mid-finale bails out fast: the user reached for the remote to *do*
+    /// something, and the solar system must be back before their input lands on it.
+    private func cancelFinale() {
+        guard finale != .none else { return }
+        finale = .none
+        galaxyNode.removeAllActions()
+        galaxyNode.runAction(.sequence([.fadeOut(duration: 0.6), .hide()]))
+        setSystemFaded(false, duration: 0.8)
+    }
+
+    /// Fades every orbit line and every body except the Sun (see `addGalaxy`). Fade actions run
+    /// alongside the permanent rotation actions, so nothing here may removeAllActions().
+    private func setSystemFaded(_ faded: Bool, duration: TimeInterval) {
+        for (name, node) in bodyNodes where name != "Sun" {
+            node.runAction(faded ? .fadeOut(duration: duration) : .fadeIn(duration: duration))
+        }
+        for node in orbitNodes.values {
+            node.runAction(faded ? .fadeOut(duration: duration) : .fadeIn(duration: duration))
+        }
     }
 
     private func flyToCurrent(at date: Date) {
@@ -798,18 +923,23 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
     /// The next fact for this body, drawn at random from its shuffle bag, with its index.
     private func nextLine(for body: Body) -> (text: String, index: Int) {
-        let lines = catalog.narration[body.name] ?? []
-        guard lines.count > 1 else { return (lines.first ?? body.fact, 0) }
+        nextLine(name: body.name, fallback: body.fact)
+    }
 
-        var bag = factBags[body.name] ?? []
+    /// Name-keyed so the finale can draw from the "Milky Way" bag, which has no Body behind it.
+    private func nextLine(name: String, fallback: String) -> (text: String, index: Int) {
+        let lines = catalog.narration[name] ?? []
+        guard lines.count > 1 else { return (lines.first ?? fallback, 0) }
+
+        var bag = factBags[name] ?? []
         if bag.isEmpty {
             bag = Array(0..<lines.count).shuffled()
             // Don't let the reshuffle repeat the fact we just ended on.
-            if let last = lastFact[body.name], bag.first == last, bag.count > 1 { bag.swapAt(0, 1) }
+            if let last = lastFact[name], bag.first == last, bag.count > 1 { bag.swapAt(0, 1) }
         }
         let index = bag.removeFirst()
-        factBags[body.name] = bag
-        lastFact[body.name] = index
+        factBags[name] = bag
+        lastFact[name] = index
         return (lines[index], index)
     }
 
@@ -821,7 +951,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         caption = makeCaption(for: pending.body, at: displayDate, line: pending.text, detailed: inDeepDive)
 
         audio.setNarrating(true)
-        narrator.speak(pending.text, clipID: "narration-\(pending.body.name.lowercased())-\(pending.index)") { [weak self] in
+        narrator.speak(pending.text, clipID: Self.clipID(pending.body.name, pending.index)) { [weak self] in
             guard let self else { return }
             self.audio.setNarrating(false)
             self.nextChangeAt = self.lastFrameAt + Self.pauseAfterNarration
@@ -830,6 +960,9 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
     private func flyCamera(at time: TimeInterval) {
         guard let flight else {
+            // Dwelling on the galaxy: the vantage is fixed in space, so there is no station to
+            // hold — easing back toward Eris here would drag the disk off screen mid-narration.
+            guard finale == .none else { return }
             // Not flying: hold station on the current world. Without this the planet would slide
             // out of frame the moment you scrub time, since it is orbiting and the camera is not.
             guard let body = currentBody, let node = bodyNodes[body.name] else { return }
@@ -855,7 +988,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
 
         if t >= 1 {
             self.flight = nil
-            arrive()
+            if finale == .flying { finaleArrive() } else { arrive() }
         }
     }
 

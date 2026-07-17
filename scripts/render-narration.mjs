@@ -157,7 +157,8 @@ function forSpeech(text) {
  *  spoken form (pronunciation-corrected); the clip id and the on-screen caption are unaffected. */
 const lines = () =>
   Object.entries(NARRATION).flatMap(([body, spoken]) =>
-    spoken.map((text, index) => ({ id: `narration-${body.toLowerCase()}-${index}`, body, text: forSpeech(text) })),
+    // Spaces become hyphens ("Milky Way" → milky-way) so ids stay filename- and URL-safe.
+    spoken.map((text, index) => ({ id: `narration-${body.toLowerCase().replace(/\s+/g, "-")}-${index}`, body, text: forSpeech(text) })),
   );
 
 const hash = (text, voice) =>
