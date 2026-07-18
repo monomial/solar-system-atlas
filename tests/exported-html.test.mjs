@@ -26,4 +26,6 @@ test("textures are exported alongside the page", async () => {
   }
   const universeField = await stat(out("textures/universe/cosmic-web-128.rgba.gz"));
   assert.ok(universeField.size > 0, "the committed universe field should be exported");
+  const cmb = await stat(out("textures/universe/cmb-wmap-2048.webp"));
+  assert.ok(cmb.size > 0, "the committed WMAP CMB texture should be exported");
 });

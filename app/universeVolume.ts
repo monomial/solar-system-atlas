@@ -29,9 +29,9 @@ export function createUniverseVolume(field:UniverseField):UniverseVolumeMesh{
       for(int index=0;index<56;index++){
         if(float(index)>=steps||accumulated.a>.96)break;
         vec3 samplePosition=uCamera+direction*distanceAlong,uvw=samplePosition/120.0+.5;vec4 field=texture(uField,uvw);
-        float density=smoothstep(.16,.8,field.r)*1.15,charted=field.a*.14;
-        vec3 cool=vec3(.11,.28,.72),warm=vec3(1.0,.44,.18),color=mix(cool,warm,field.g)*(.34+density*1.5+charted);
-        float alpha=clamp(density*stepLength*.019,0.0,.11);accumulated.rgb+=(1.0-accumulated.a)*color*alpha;accumulated.a+=(1.0-accumulated.a)*alpha;
+        float absorption=mix(1.0,.52,smoothstep(.5,1.0,field.b)),density=smoothstep(.17,.78,field.r)*1.22*absorption,charted=field.a;
+        vec3 cool=vec3(.055,.18,.48),warm=vec3(.96,.36,.13),anchorWarm=vec3(1.0,.58,.24),color=mix(cool,warm,clamp(field.g+charted*.1,0.0,1.0));color=mix(color,anchorWarm,charted*.24)*(.28+density*1.55+charted*.18);
+        float alpha=clamp(density*stepLength*.018,0.0,.1);accumulated.rgb+=(1.0-accumulated.a)*color*alpha;accumulated.a+=(1.0-accumulated.a)*alpha;
         distanceAlong+=stepLength;
       }
       gl_FragColor=accumulated;

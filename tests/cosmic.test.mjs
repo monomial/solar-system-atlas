@@ -47,8 +47,8 @@ test("Local Group coordinates preserve distance scale and subgroup topology", ()
   assert.ok(separation(home, byId.smc) < separation(byId.andromeda, byId.smc), "SMC should sit in the Milky Way subgroup");
 });
 
-test("the universe catalog carries the ten approved distinct anchors", () => {
-  assert.deepEqual(UNIVERSE_LANDMARKS.map((item) => item.name), ["Our Local Group", "Virgo Cluster", "Laniakea", "Shapley Concentration", "Boötes Void", "Sloan Great Wall", "Coma Cluster", "Perseus–Pisces Supercluster", "3C 273", "JADES-GS-z14-0"]);
+test("the universe catalog carries the eleven approved distinct anchors", () => {
+  assert.deepEqual(UNIVERSE_LANDMARKS.map((item) => item.name), ["Our Local Group", "Virgo Cluster", "Laniakea", "Shapley Concentration", "Boötes Void", "Sloan Great Wall", "Coma Cluster", "Perseus–Pisces Supercluster", "3C 273", "JADES-GS-z14-0", "Cosmic Microwave Background"]);
   assert.equal(UNIVERSE_LANDMARKS.find((item) => item.id === "3c-273")?.schematic, true);
   assert.equal(UNIVERSE_LANDMARKS.find((item) => item.id === "jades-gs-z14-0")?.schematic, true);
 });
