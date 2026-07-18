@@ -26,3 +26,9 @@ These are used only by the tvOS deep-dive, which renders moons; the web atlas do
 All of the above are 2048x1024 and encoded as WebP at quality 82 (`cwebp -q 82 -m 6`), which cut the texture payload from 6.4 MB to 2.4 MB with no visible change on a sphere (SSIM 0.97-0.998 against the JPEG originals). Re-encode from the upstream sources rather than from these files if you need to change them, so quality losses do not stack.
 
 Haumea, Makemake, and Eris remain procedural appearance approximations because no spacecraft has acquired a resolved global surface map of them.
+
+## Observable universe field and CMB boundary
+
+`universe/cosmic-web-128.rgba.gz` is a deterministic generated data texture, not survey imagery. `scripts/bake-universe-field.mjs` bakes the statistical cosmic-web field and its four catalog-shaped near-field stamps from `app/universeField.ts`; the gzip asset is committed so entering the universe scale never blocks the browser's main thread and so the same bytes can later ship in the tvOS bundle.
+
+No ESA Planck image is bundled in WP1 because the exact reusable map product and credit terms were not pinned. The CMB sphere therefore uses a deterministic **procedural CMB-statistics fallback**, labeled as such in the UI; it must not be described as a Planck data map. Scientific context and comparison maps: [ESA Planck picture gallery](https://www.cosmos.esa.int/web/planck/picture-gallery). The catalog-shaped Laniakea stamp follows the flow-basin framing in Tully et al., [The Laniakea supercluster of galaxies](https://www.nature.com/articles/nature13674).

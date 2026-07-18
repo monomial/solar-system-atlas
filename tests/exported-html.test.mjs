@@ -24,4 +24,6 @@ test("textures are exported alongside the page", async () => {
     const info = await stat(out(`textures/local-group/${texture}`));
     assert.ok(info.size > 0, `textures/local-group/${texture} should not be empty`);
   }
+  const universeField = await stat(out("textures/universe/cosmic-web-128.rgba.gz"));
+  assert.ok(universeField.size > 0, "the committed universe field should be exported");
 });

@@ -13,6 +13,7 @@
     "dev": "next dev",
     "galaxy-maps": "node --experimental-strip-types scripts/bake-galaxy-maps.mjs && node --experimental-strip-types scripts/bake-local-group.mjs",
     "local-group-maps": "node --experimental-strip-types scripts/bake-local-group.mjs",
+    "universe-field": "node --experimental-strip-types scripts/bake-universe-field.mjs",
     "lint": "eslint .",
     "narration": "node --experimental-strip-types scripts/render-narration.mjs",
     "preview": "npx --yes serve out",

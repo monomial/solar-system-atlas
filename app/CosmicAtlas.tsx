@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import SolarSystem from "./SolarSystem";
 import DeepSpace from "./DeepSpace";
+import Universe from "./Universe";
 import { COSMIC_JOURNEY } from "./cosmic";
 import type { AtlasMode } from "./cosmic";
 
-const MODE_LABELS: Record<AtlasMode, string> = { solar:"Solar system",galaxy:"Milky Way",local:"Local Group" };
+const MODE_LABELS: Record<AtlasMode, string> = { solar:"Solar system",galaxy:"Milky Way",local:"Local Group",universe:"Universe" };
 
 export default function CosmicAtlas() {
   const [mode,setMode]=useState<AtlasMode>("solar");
@@ -33,11 +34,11 @@ export default function CosmicAtlas() {
   const focus=journey===null?undefined:COSMIC_JOURNEY[journey].focus;
 
   return <div className={`cosmic-host ${journey!==null?"journey-active":""}`}>
-    {mode==="solar"?<SolarSystem onAmbientModeChange={setAmbient}/>:<DeepSpace key={mode} mode={mode} focusId={focus}/>} 
+    {mode==="solar"?<SolarSystem onAmbientModeChange={setAmbient}/>:mode==="universe"?<Universe focusId={focus}/>:<DeepSpace key={mode} mode={mode} focusId={focus}/>}
 
     {!ambient&&<>
       <nav className="cosmic-scale-nav" aria-label="Choose atlas scale">
-        {(Object.keys(MODE_LABELS) as AtlasMode[]).map(value=><button key={value} className={mode===value?"active":""} onClick={()=>navigate(value)} aria-current={mode===value?"page":undefined}><i/>{MODE_LABELS[value]}</button>)}
+        {(Object.keys(MODE_LABELS) as AtlasMode[]).map(value=><button key={value} className={`${mode===value?"active ":""}${value==="universe"?"universe":""}`} onClick={()=>navigate(value)} aria-current={mode===value?"page":undefined}><i/>{MODE_LABELS[value]}{value==="universe"&&<small>93 billion light-year view</small>}</button>)}
       </nav>
       <button className="cosmic-journey-launch" onClick={beginJourney}>Cosmic address</button>
     </>}

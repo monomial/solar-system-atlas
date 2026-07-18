@@ -12,8 +12,10 @@ import { ARM_START, MILKY_WAY_SEED, MILKY_WAY_SPIN, galaxySkeleton, hexRgb, milk
 import { createGalaxyVolume } from "./galaxyVolume";
 import { chooseGalaxyDetailQuality, createGalacticMarker, createGalaxyDetailSurface, loadGalaxyDetailTexture, loadGalaxyVolumeTexture } from "./galaxyDetail";
 import { hasAuthoredLocalGroupTexture, loadLocalGroupTexture } from "./localGroupAssets";
+import { installDeepOverlays, labelTexture } from "./deepOverlays";
+import type { DeepLabel, DeepMarker } from "./deepOverlays";
 
-type DeepMode = Exclude<AtlasMode,"solar">;
+type DeepMode = Extract<AtlasMode,"galaxy"|"local">;
 type ViewMode = "tilted"|"top"|"edge";
 type SceneApi = { focus:(id:string)=>void;view:(mode:ViewMode)=>void };
 
@@ -30,13 +32,6 @@ function seeded(n:number){const x=Math.sin(n*999.91)*43758.5453;return x-Math.fl
 // All galaxy painting lives in galaxyPaint.ts (Three-free, DOM-optional — the bake script and the
 // tvOS pipeline reuse it). This module only wraps its canvases for the GPU.
 function canvasTexture(canvas:HTMLCanvasElement){const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=16;return texture;}
-
-function labelTexture(name:string,color:string){
-  const canvas=document.createElement("canvas");canvas.width=512;canvas.height=112;const context=canvas.getContext("2d")!;
-  context.font="600 26px Arial";context.textAlign="center";context.fillStyle="rgba(3,6,14,.82)";context.roundRect(40,24,432,64,12);context.fill();
-  context.strokeStyle=color;context.globalAlpha=.5;context.stroke();context.globalAlpha=1;context.fillStyle="#f2f0e9";context.fillText(name.toUpperCase(),256,64);
-  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;return texture;
-}
 
 // A soft round particle. Point clouds read as hard confetti squares by default; giving each point
 // this radial-alpha sprite as its `map` lets overlapping points melt into a smooth glow instead.
@@ -210,8 +205,8 @@ export default function DeepSpace({mode,focusId}:{mode:DeepMode;focusId?:string}
     const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.045;controls.enablePan=false;controls.minDistance=6;controls.maxDistance=mode==="galaxy"?170:190;controls.target.set(0,0,0);
     const coarsePointer=matchMedia("(pointer: coarse)").matches;
     const stars=starfield(scene,4200,mode==="galaxy"?380:500);
-    const labels:{id:string;sprite:THREE.Sprite;anchor:THREE.Vector3;worldRadius:number;markerPixelRadius:number}[]=[];
-    const markers:{id:string;sprite:THREE.Sprite;anchor:THREE.Vector3;pixelSize:number}[]=[];
+    const labels:DeepLabel[]=[];
+    const markers:DeepMarker[]=[];
     const targets:THREE.Object3D[]=[];const positions=new Map<string,THREE.Vector3>();
     let activeId=mode==="galaxy"?"solar-system":"milky-way",disposed=false;
     const asyncTextures:THREE.Texture[]=[];
@@ -263,43 +258,12 @@ export default function DeepSpace({mode,focusId}:{mode:DeepMode;focusId?:string}
     function focus(id:string){const target=positions.get(id);if(!target)return;activeId=id;setSelected(id);const vs=mode==="local"?NEARBY_GALAXIES.find(galaxy=>galaxy.id===id)?.visualSize??3:0;const offset=mode==="galaxy"?new THREE.Vector3(0,14,18):new THREE.Vector3(0,12,18).multiplyScalar(Math.min(2.1,Math.max(.85,vs/3)));fly={start:performance.now(),from:camera.position.clone(),to:target.clone().add(offset),targetFrom:controls.target.clone(),targetTo:target.clone()};}
     function changeView(next:ViewMode){setViewMode(next);const to=next==="top"?new THREE.Vector3(0,mode==="galaxy"?105:115,.01):next==="edge"?new THREE.Vector3(0,3,mode==="galaxy"?110:125):new THREE.Vector3(0,mode==="galaxy"?58:64,mode==="galaxy"?78:92);fly={start:performance.now(),from:camera.position.clone(),to,targetFrom:controls.target.clone(),targetTo:new THREE.Vector3()};}
     apiRef.current={focus,view:changeView};
-    const down=new THREE.Vector2();let frame=0;const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
-    function pointerDown(event:PointerEvent){down.set(event.clientX,event.clientY);}
-    function pointerUp(event:PointerEvent){if(down.distanceTo(new THREE.Vector2(event.clientX,event.clientY))>7)return;const rect=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-rect.left)/rect.width*2-1,-((event.clientY-rect.top)/rect.height)*2+1);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(targets,false)[0];if(hit)focus(hit.object.userData.id);}
-    renderer.domElement.addEventListener("pointerdown",pointerDown);renderer.domElement.addEventListener("pointerup",pointerUp);
-    const cameraScreenUp=new THREE.Vector3(),labelPosition=new THREE.Vector3(),projected=new THREE.Vector3();
-    function placeOverlaysInScreenSpace(now:number){
-      const viewportWidth=Math.max(1,renderer.domElement.clientWidth),viewportHeight=Math.max(1,renderer.domElement.clientHeight),pixelHeight=coarsePointer?32:38;
-      const perspectiveFactor=2*Math.tan(THREE.MathUtils.degToRad(camera.fov*.5))/viewportHeight;
-      cameraScreenUp.set(0,1,0).applyQuaternion(camera.quaternion).normalize();
-      for(const marker of markers){
-        const worldPerPixel=Math.max(1e-10,camera.position.distanceTo(marker.anchor)*perspectiveFactor),active=marker.id===activeId;
-        const pulse=active?1.08+Math.sin(now*.004)*.05:1,size=worldPerPixel*marker.pixelSize*pulse;
-        marker.sprite.position.copy(marker.anchor);marker.sprite.scale.set(size,size,1);(marker.sprite.material as THREE.SpriteMaterial).opacity=active?1:.72;
-      }
-      for(const {sprite,anchor,worldRadius,markerPixelRadius} of labels){
-        const worldPerPixel=Math.max(1e-10,camera.position.distanceTo(anchor)*perspectiveFactor),height=worldPerPixel*pixelHeight;
-        labelPosition.copy(anchor).addScaledVector(cameraScreenUp,worldRadius+worldPerPixel*(markerPixelRadius+5+pixelHeight*.5));
-        sprite.position.copy(labelPosition);sprite.scale.set(height*4.57,height,1);
-      }
-      const priority=(id:string)=>id===activeId?0:id==="solar-system"||id==="milky-way"?1:id==="center"||id==="andromeda"?2:3;
-      const occupied:{left:number;right:number;top:number;bottom:number}[]=[];
-      for(const label of [...labels].sort((a,b)=>priority(a.id)-priority(b.id))){
-        projected.copy(label.sprite.position).project(camera);
-        const x=(projected.x*.5+.5)*viewportWidth,y=(-projected.y*.5+.5)*viewportHeight,width=pixelHeight*4.1,pad=7;
-        const rect={left:x-width/2-pad,right:x+width/2+pad,top:y-pixelHeight/2-pad,bottom:y+pixelHeight/2+pad};
-        const onScreen=projected.z>-1&&projected.z<1&&rect.right>0&&rect.left<viewportWidth&&rect.bottom>0&&rect.top<viewportHeight;
-        const blocked=onScreen&&occupied.some(other=>rect.left<other.right&&rect.right>other.left&&rect.top<other.bottom&&rect.bottom>other.top);
-        const targetOpacity=onScreen&&!blocked?1:0,material=label.sprite.material as THREE.SpriteMaterial;
-        material.opacity=THREE.MathUtils.lerp(material.opacity,targetOpacity,.16);
-        if(targetOpacity>0)occupied.push(rect);
-      }
-    }
-    function animate(now:number){frame=requestAnimationFrame(animate);controls.update();stars.rotation.y+=.000018;if(fly){const t=Math.min(1,(now-fly.start)/1100),ease=t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;camera.position.lerpVectors(fly.from,fly.to,ease);controls.target.lerpVectors(fly.targetFrom,fly.targetTo,ease);if(t>=1)fly=null;}placeOverlaysInScreenSpace(now);composer.render();}
+    const overlays=installDeepOverlays({camera,renderer,coarsePointer,labels,markers,targets,activeId:()=>activeId,focus});
+    let frame=0;function animate(now:number){frame=requestAnimationFrame(animate);controls.update();stars.rotation.y+=.000018;if(fly){const t=Math.min(1,(now-fly.start)/1100),ease=t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;camera.position.lerpVectors(fly.from,fly.to,ease);controls.target.lerpVectors(fly.targetFrom,fly.targetTo,ease);if(t>=1)fly=null;}overlays.update(now);composer.render();}
     animate(performance.now());
     function resize(){const width=renderer.domElement.parentElement?.clientWidth??1,height=renderer.domElement.parentElement?.clientHeight??1;camera.aspect=width/height;camera.updateProjectionMatrix();renderer.setSize(width,height);composer.setSize(width,height);}
     const observer=new ResizeObserver(resize);observer.observe(mount);
-    return()=>{disposed=true;cancelAnimationFrame(frame);observer.disconnect();renderer.domElement.removeEventListener("pointerdown",pointerDown);renderer.domElement.removeEventListener("pointerup",pointerUp);controls.dispose();composer.dispose();scene.traverse(object=>{(object as THREE.Mesh).geometry?.dispose();const material=(object as THREE.Mesh).material;for(const entry of Array.isArray(material)?material:material?[material]:[]){for(const value of Object.values(entry))if(value instanceof THREE.Texture)value.dispose();entry.dispose();}});for(const texture of asyncTextures)texture.dispose();scene.clear();renderer.dispose();mount.replaceChildren();apiRef.current=null;};
+    return()=>{disposed=true;cancelAnimationFrame(frame);observer.disconnect();overlays.dispose();controls.dispose();composer.dispose();scene.traverse(object=>{(object as THREE.Mesh).geometry?.dispose();const material=(object as THREE.Mesh).material;for(const entry of Array.isArray(material)?material:material?[material]:[]){for(const value of Object.values(entry))if(value instanceof THREE.Texture)value.dispose();entry.dispose();}});for(const texture of asyncTextures)texture.dispose();scene.clear();renderer.dispose();mount.replaceChildren();apiRef.current=null;};
   },[mode]);
 
   function choose(id:string){setSelected(id);apiRef.current?.focus(id);}

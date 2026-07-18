@@ -1,4 +1,4 @@
-export type AtlasMode = "solar" | "galaxy" | "local";
+export type AtlasMode = "solar" | "galaxy" | "local" | "universe";
 export type GalacticMarkerKind = "center" | "home" | "region";
 
 export type GalacticRegion = {
@@ -35,6 +35,20 @@ export type NearbyGalaxy = {
   tilt: number;
 };
 
+export type UniverseLandmark = {
+  id:string;
+  name:string;
+  kind:string;
+  /** Independent normalized universe-space coordinate; distances are deliberately compressed. */
+  position:[number,number,number];
+  distance:string;
+  scale:string;
+  description:string;
+  fact:string;
+  color:string;
+  schematic?:boolean;
+};
+
 // Marker positions sit ON the arms drawn by MILKY_WAY_ARMS in galaxyPaint.ts (same frame: one
 // unit = 1,000 light-years, Sun at azimuth 90° = +z at radius 26, bar at 118°, disk radius 56
 // units). If the arm table moves, these must move with it or the labels drift off their arms.
@@ -61,10 +75,24 @@ export const NEARBY_GALAXIES: NearbyGalaxy[] = [
   { id:"ic-10",name:"IC 10",kind:"Dwarf irregular galaxy",distanceMly:2.2,position:[5,2,-49],angle:5.35,height:2,diameter:"About 5,000 light-years",stars:"Millions to billions",description:"IC 10 is a small but vigorous starburst galaxy on the Local Group's outskirts.",fact:"Dust in the Milky Way makes IC 10 difficult to study in visible light even though it is relatively nearby.",color:"#f0b9d4",visualSize:1.4,variant:"dwarf",tilt:.6 },
 ];
 
+export const UNIVERSE_LANDMARKS: UniverseLandmark[] = [
+  {id:"local-group",name:"Our Local Group",kind:"You are here",position:[0,0,0],distance:"Our origin in this compressed map",scale:"About 10 million light-years across",description:"The Milky Way and its neighboring galaxies occupy one almost invisible point in the observable universe. This marker continues the atlas's unbroken you-are-here chain.",fact:"Even the entire Local Group is tiny compared with the filaments and voids of the cosmic web.",color:"#79dfff"},
+  {id:"virgo",name:"Virgo Cluster",kind:"Galaxy cluster inside Laniakea",position:[.1,.04,.03],distance:"About 54 million light-years",scale:"More than a thousand member galaxies",description:"Virgo is the nearest large galaxy cluster and part of the broader Laniakea complex. Its gravity influences the motion of galaxies in our cosmic neighborhood.",fact:"Virgo is marked inside Laniakea here, not as a separate supercluster.",color:"#ffd398"},
+  {id:"laniakea",name:"Laniakea",kind:"Home supercluster complex",position:[.18,.052,.047],distance:"Centered roughly 250 million light-years away",scale:"About 520 million light-years across",description:"Laniakea is a mapped basin of galaxy flows containing the Local Group, Virgo, and many neighboring clusters. Its filament is schematically stamped into the near field.",fact:"Its Hawaiian name means immense heaven; astronomers defined it by following galaxy motions toward a shared gravitational basin.",color:"#ffb878"},
+  {id:"shapley",name:"Shapley Concentration",kind:"Massive cluster concentration",position:[.55,.25,-.12],distance:"About 650 million light-years",scale:"One of the densest regions nearby",description:"The Shapley Concentration is an exceptional accumulation of galaxy clusters in the nearby universe and contributes to large-scale motions around us.",fact:"Its enormous mass helps tug the Local Group in the general direction once associated with the Great Attractor.",color:"#ff8f75"},
+  {id:"bootes",name:"Boötes Void",kind:"Cosmic void",position:[-.42,.3,.08],distance:"Center roughly 700 million light-years away",scale:"Roughly 330 million light-years across",description:"The Boötes Void is a vast underdense region containing far fewer galaxies than a typical volume. The density field is explicitly carved low at this location.",fact:"Cosmic voids are not perfectly empty; sparse galaxies still inhabit their interiors.",color:"#718dce"},
+  {id:"sloan-wall",name:"Sloan Great Wall",kind:"Galaxy wall",position:[.05,-.35,.35],distance:"Roughly one billion light-years",scale:"About 1.4 billion light-years long",description:"The Sloan Great Wall is a huge sheetlike arrangement of galaxies found in Sloan Digital Sky Survey data. Its mapped orientation is schematic in this compressed view.",fact:"Structures this large are patterns in the cosmic web, not single gravitationally bound objects.",color:"#c4a6ff"},
+  {id:"coma",name:"Coma Cluster",kind:"Rich galaxy cluster",position:[-.12,.2,.38],distance:"About 320 million light-years",scale:"Thousands of galaxies",description:"The Coma Cluster is a rich, relatively nearby cluster whose galaxies helped establish evidence for large amounts of unseen mass.",fact:"Fritz Zwicky's study of Coma in the 1930s was an early argument for dark matter.",color:"#9ecbff"},
+  {id:"perseus-pisces",name:"Perseus–Pisces Supercluster",kind:"Galaxy filament",position:[-.32,-.12,.2],distance:"Roughly 250 million light-years",scale:"Hundreds of millions of light-years long",description:"Perseus–Pisces is a prominent chain of galaxy clusters bordering large nearby voids. It is a real survey anchor placed schematically in the near field.",fact:"Its long arc is one of the most conspicuous supercluster structures in maps of the nearby universe.",color:"#9be3cb"},
+  {id:"3c-273",name:"3C 273",kind:"First identified quasar",position:[.7,-.5,-.25],distance:"About 2.4 billion light-years",scale:"Schematic distant pointer",description:"3C 273 was the first object recognized as a quasar. It lies beyond the roughly gigalight-year region charted into this field, so this marker is a directional pointer only.",fact:"Its spectrum revealed an enormous redshift, showing that a star-like point could be extraordinarily distant and luminous.",color:"#f6e3a0",schematic:true},
+  {id:"jades-gs-z14-0",name:"JADES-GS-z14-0",kind:"Among the earliest galaxies known",position:[-.62,.65,-.48],distance:"Seen about 290 million years after the big bang",scale:"Schematic lookback pointer",description:"JADES-GS-z14-0 is an extremely distant early galaxy found with JWST. It is not the quasar 3C 273 and is shown only as a schematic lookback direction outside the charted near field.",fact:"Its light has traveled for more than 13 billion years, letting us see a galaxy from cosmic dawn.",color:"#ff9fc7",schematic:true},
+];
+
 export const COSMIC_JOURNEY = [
   { mode:"solar" as AtlasMode,focus:"Earth",eyebrow:"Address 1 · A living world",title:"Earth",note:"Our starting point is one planet orbiting an ordinary star. Pull back, and the entire solar system soon becomes smaller than a single pixel." },
   { mode:"galaxy" as AtlasMode,focus:"solar-system",eyebrow:"Address 2 · Orion Spur",title:"The Sun's neighborhood",note:"The solar system sits about 26,000 light-years from the Milky Way's center, in a minor branch between major spiral arms." },
   { mode:"galaxy" as AtlasMode,focus:"center",eyebrow:"Address 3 · The Milky Way",title:"One galactic orbit",note:"The Sun needs roughly 230 million years to circle the galaxy. Dinosaurs appeared during the previous galactic year." },
   { mode:"local" as AtlasMode,focus:"milky-way",eyebrow:"Address 4 · Local Group",title:"Our galaxy among galaxies",note:"The Milky Way is one of dozens of galaxies bound together in the Local Group. Most are far smaller dwarf galaxies." },
   { mode:"local" as AtlasMode,focus:"andromeda",eyebrow:"Address 5 · Nearest large neighbor",title:"Andromeda",note:"The nearest other large spiral is 2.54 million light-years away. Together, Andromeda and the Milky Way dominate the Local Group." },
+  { mode:"universe" as AtlasMode,focus:"local-group",eyebrow:"Address 6 · Observable universe",title:"One mote in the cosmic web",note:"The Local Group becomes a point inside a 93 billion light-year view. Nearby labeled structures come from surveys; the filament field is statistical, distances are compressed, and distant anchors are schematic pointers." },
 ];

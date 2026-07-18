@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { COSMIC_JOURNEY, GALACTIC_REGIONS, NEARBY_GALAXIES } from "../app/cosmic.ts";
+import { COSMIC_JOURNEY, GALACTIC_REGIONS, NEARBY_GALAXIES, UNIVERSE_LANDMARKS } from "../app/cosmic.ts";
 
 test("cosmic atlas catalogs have stable unique identifiers", () => {
-  for (const catalog of [GALACTIC_REGIONS, NEARBY_GALAXIES]) {
+  for (const catalog of [GALACTIC_REGIONS, NEARBY_GALAXIES, UNIVERSE_LANDMARKS]) {
     assert.equal(new Set(catalog.map((item) => item.id)).size, catalog.length);
     assert.ok(catalog.every((item) => item.name && item.description && item.fact && /^#[0-9a-f]{6}$/i.test(item.color)));
   }
@@ -47,11 +47,19 @@ test("Local Group coordinates preserve distance scale and subgroup topology", ()
   assert.ok(separation(home, byId.smc) < separation(byId.andromeda, byId.smc), "SMC should sit in the Milky Way subgroup");
 });
 
-test("the cosmic address journey crosses all three atlas layers", () => {
-  assert.deepEqual(new Set(COSMIC_JOURNEY.map((stop) => stop.mode)), new Set(["solar", "galaxy", "local"]));
+test("the universe catalog carries the ten approved distinct anchors", () => {
+  assert.deepEqual(UNIVERSE_LANDMARKS.map((item) => item.name), ["Our Local Group", "Virgo Cluster", "Laniakea", "Shapley Concentration", "Boötes Void", "Sloan Great Wall", "Coma Cluster", "Perseus–Pisces Supercluster", "3C 273", "JADES-GS-z14-0"]);
+  assert.equal(UNIVERSE_LANDMARKS.find((item) => item.id === "3c-273")?.schematic, true);
+  assert.equal(UNIVERSE_LANDMARKS.find((item) => item.id === "jades-gs-z14-0")?.schematic, true);
+});
+
+test("the cosmic address journey crosses all four atlas layers", () => {
+  assert.deepEqual(new Set(COSMIC_JOURNEY.map((stop) => stop.mode)), new Set(["solar", "galaxy", "local", "universe"]));
   for (const stop of COSMIC_JOURNEY) {
     assert.ok(stop.title && stop.note && stop.focus);
     if (stop.mode === "galaxy") assert.ok(GALACTIC_REGIONS.some((region) => region.id === stop.focus));
     if (stop.mode === "local") assert.ok(NEARBY_GALAXIES.some((galaxy) => galaxy.id === stop.focus));
+    if (stop.mode === "universe") assert.ok(UNIVERSE_LANDMARKS.some((landmark) => landmark.id === stop.focus));
   }
+  assert.equal(COSMIC_JOURNEY.at(-1)?.focus, "local-group");
 });
