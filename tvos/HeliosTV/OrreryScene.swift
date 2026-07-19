@@ -71,13 +71,13 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     // back and the loop returns to the Sun. The orrery and the galaxy use incompatible display
     // scales (sqrt-compressed AU vs schematic light-years), so this is a staged crossfade — the
     // narration carries the scale jump; the picture never pretends the zoom is continuous.
-    /// It then pulls back once more: the volume crossfades to the flat authored portrait inside
-    /// the Local Group node, the neighbour galaxies fade in at schematic positions, and an
-    /// Andromeda line lands before everything fades home.
-    private enum Finale { case none, flying, dwelling, flyingLocal, dwellingLocal }
+    /// It then pulls back twice more: first to the Local Group, then through one final long
+    /// recession until the cosmic web and CMB wall resolve around every galaxy before fading home.
+    private enum Finale { case none, flying, dwelling, flyingLocal, dwellingLocal, flyingUniverse, dwellingUniverse }
     private var finale: Finale = .none
     private let galaxyNode = Galaxy.makeNode()
     private var localGroupNode = SCNNode()
+    private let universeNode = Universe.makeNode()
     /// One galaxy unit (1,000 ly) in orrery world units. Sized so the disk dwarfs Eris's orbit
     /// (radius ~240) without leaving the starfield shell or the camera's zFar.
     private static let galaxyScale = 8.0
@@ -86,6 +86,9 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     /// camera plus the shrink is what reads as continued zoom, and true scale would put
     /// Andromeda beyond zFar. Same schematic-distances-enlarged-diameters deal as the web.
     private static let localGroupScale = 30.0
+    /// Cosmic-web local half-extent 60 × 14 = 840 world units: large enough to swallow the Local
+    /// Group portrait while the 2,100-unit final vantage still fits comfortably inside zFar 5000.
+    private static let universeScale = 14.0
     /// The finale renders a full-screen raymarch; the rest of the app renders spheres. Two
     /// hardware measures on a real Apple TV drive what happens here (see git history for the
     /// [perf] traces): the volume is fill-bound, so for the finale's duration the view drops to
@@ -93,13 +96,13 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     /// TV, and the SwiftUI caption is not part of this view) and caps at cinema pacing so the
     /// headroom becomes steadiness. Both restored on exit. And the first draw of a hidden
     /// SCNProgram node compiles its Metal pipeline and uploads its textures — a 300–430 ms hitch
-    /// if it happens the frame the finale unhides — so attach() pre-warms both nodes instead.
+    /// if it happens the frame the finale unhides — so attach() pre-warms all finale nodes.
     private weak var sceneView: SCNView?
     private var nominalScale: CGFloat = 0
     func attach(view: SCNView) {
         sceneView = view
         nominalScale = view.contentScaleFactor
-        view.prepare([galaxyNode, localGroupNode], completionHandler: nil)
+        view.prepare([galaxyNode, localGroupNode, universeNode], completionHandler: nil)
     }
     /// A shuffle bag of fact indices per body, and the last one played. Every fact is handed out
     /// once in random order before any repeats, then the bag reshuffles — with no fact landing
@@ -201,6 +204,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         addMoons()
         addCamera()
         addGalaxy()
+        addUniverse()
 
         featured = tour.compactMap { name in
             (catalog.planets + catalog.dwarfs).first { $0.name == name }
@@ -263,6 +267,14 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
             localGroupNode.simdPosition = galaxyNode.simdPosition - SIMD3<Float>(homeOffset)
             scene.rootNode.addChildNode(localGroupNode)
         }
+    }
+
+    /// Universe-local origin is our Local Group. Park it on the Milky Way portrait's world
+    /// position so the crossfade preserves the one point the viewer already knows.
+    private func addUniverse() {
+        universeNode.simdScale = SIMD3<Float>(repeating: Float(Self.universeScale))
+        universeNode.simdPosition = galaxyNode.simdPosition
+        scene.rootNode.addChildNode(universeNode)
     }
 
     private func addSun() {
@@ -828,9 +840,10 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
     private var isHoming = false
 
     private func advance(to date: Date) {
-        // Milky Way dwell over: pull back once more, to the Local Group. Galaxy dwell over: home.
+        // Each dwell advances one scale: Milky Way → Local Group → cosmic web → home.
         if finale == .dwelling { beginLocalGroup(); return }
-        if finale == .dwellingLocal { endFinale(); return }
+        if finale == .dwellingLocal { beginUniverse(); return }
+        if finale == .dwellingUniverse { endFinale(); return }
         // Eris was the last world. Before wrapping to the Sun, pull back and show where all of it lives.
         if finale == .none, !featured.isEmpty, featuredIndex == featured.count - 1 { beginFinale(); return }
         featuredIndex = (featuredIndex + 1) % featured.count
@@ -933,6 +946,48 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         }
     }
 
+    /// The Local Group dwell is over: one last pull-back until its portrait becomes the origin of
+    /// the resolved-galaxy census and the filaments of the cosmic web surround everything.
+    private func beginUniverse() {
+        guard universeNode.parent != nil else { endFinale(); return }
+        finale = .flyingUniverse
+        caption = nil
+        localGroupNode.removeAllActions()
+        localGroupNode.runAction(.sequence([.fadeOut(duration: 5), .hide()]))
+        universeNode.removeAllActions()
+        universeNode.isHidden = false
+        universeNode.runAction(.fadeIn(duration: 5))
+
+        let center = SIMD3<Double>(universeNode.simdPosition)
+        // As far back as the geometry allows: the CMB wall sits at 172×14 ≈ 2,408 world units and
+        // the camera must stay inside it — the beat needs the web to read as a thing with edges.
+        let vantage = center + SIMD3<Double>(0, 0.5547, 0.8321) * 2_280
+        let from = SIMD3<Double>(cameraNode.simdPosition)
+        let travel = simd_distance(from, vantage)
+        let midpoint = (from + vantage) * 0.5
+        let control = midpoint + SIMD3<Double>(0, travel * 0.12, 0)
+        flight = Flight(from: from, control: control, to: vantage,
+                        aimFrom: SIMD3<Double>(focusTarget.simdPosition), aimTo: center,
+                        start: lastFrameAt, duration: 16)
+        flightEndsAt = lastFrameAt + 16
+        nextChangeAt = flightEndsAt + Self.maxDwell
+    }
+
+    /// The complete web is in frame. One universe line lands before the existing home transition.
+    private func universeArrive() {
+        finale = .dwellingUniverse
+        let (text, index) = nextLine(name: "Universe",
+                                     fallback: "Galaxies gather along a cosmic web, with immense dark voids between its glowing filaments.")
+        caption = Caption(name: "THE COSMIC WEB", kind: "The observable universe",
+                          distance: "Every point of light is an entire galaxy", fact: text)
+        audio.setNarrating(true)
+        narrator.speak(text, clipID: Self.clipID("Universe", index)) { [weak self] in
+            guard let self else { return }
+            self.audio.setNarrating(false)
+            self.nextChangeAt = self.lastFrameAt + Self.pauseAfterNarration
+        }
+    }
+
     private func endFinale() {
         finale = .none
         caption = nil
@@ -942,6 +997,8 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         galaxyNode.runAction(.sequence([.fadeOut(duration: 3), .hide()]))
         localGroupNode.removeAllActions()
         localGroupNode.runAction(.sequence([.fadeOut(duration: 3), .hide()]))
+        universeNode.removeAllActions()
+        universeNode.runAction(.sequence([.fadeOut(duration: 3), .hide()]))
         setSystemFaded(false, duration: 3)
         featuredIndex = 0
         flyToCurrent(at: displayDate)
@@ -958,6 +1015,8 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
         galaxyNode.runAction(.sequence([.fadeOut(duration: 0.6), .hide()]))
         localGroupNode.removeAllActions()
         localGroupNode.runAction(.sequence([.fadeOut(duration: 0.6), .hide()]))
+        universeNode.removeAllActions()
+        universeNode.runAction(.sequence([.fadeOut(duration: 0.6), .hide()]))
         setSystemFaded(false, duration: 0.8)
     }
 
@@ -1082,6 +1141,7 @@ final class OrreryScene: NSObject, ObservableObject, SCNSceneRendererDelegate {
             switch finale {
             case .flying: finaleArrive()
             case .flyingLocal: localGroupArrive()
+            case .flyingUniverse: universeArrive()
             default: arrive()
             }
         }
