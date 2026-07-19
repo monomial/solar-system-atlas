@@ -112,7 +112,7 @@ export const ORBITING_BODIES=[...PLANETS.slice(1),...DWARFS,...SMALL_BODIES];
 // - Still TRUE. Simplifying is not fibbing, and a child who later finds out you fudged it learns
 //   the wrong lesson about science. Where the real number is startling, use the real number.
 //   Where the honest answer is "we changed our minds", say that — see Pluto.
-export const NARRATION: Partial<Record<BodyName | "Milky Way" | "Local Group", string[]>> = {
+export const NARRATION: Partial<Record<BodyName | "Milky Way" | "Local Group" | "Universe", string[]>> = {
   Sun: [
     "The Sun is a star. The same kind of star as the little ones you see at night. It only looks big because it is the closest one to us.",
     "A million Earths would fit inside the Sun. A million.",
@@ -374,5 +374,12 @@ export const NARRATION: Partial<Record<BodyName | "Milky Way" | "Local Group", s
     "Our galaxy is not alone. It lives in a little family of galaxies called the Local Group. The other great spiral is Andromeda.",
     "Andromeda's light travels for two and a half million years to reach us. When you find it in the sky, you are seeing an enormously long time into the past.",
     "Andromeda and the Milky Way are slowly drifting toward each other. Billions of years from now, they will swirl together and become one enormous galaxy.",
+  ],
+  // The tour's very last beat: the cosmic web resolves around everything. One idea per line,
+  // same rule as the other finale beats — the words carry what the picture cannot.
+  Universe: [
+    "Pull back far enough, and even galaxies gather into threads, with enormous dark spaces between them. This is the cosmic web, the largest shape we have ever found.",
+    "Our whole family of galaxies, everything you just saw, is one tiny speck on one thread of the web.",
+    "The faint glow around everything is the oldest light there is. Its little ripples, from long before any star, are the seeds that slowly grew into all of this.",
   ],
 };

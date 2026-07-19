@@ -47,6 +47,12 @@ const localGroupTextures = (await readdir(localGroupDir)).filter((file) => /-102
 for (const file of localGroupTextures)
   await copyFile(new URL(file, localGroupDir), new URL(`local-group-${file}`, resourceDir));
 
+// The universe beat's assets: the committed cosmic-web density field (the same bytes the web
+// raymarches — designed from day one to ride in this bundle) and the quieted WMAP CMB wall.
+const universeDir = new URL("../public/textures/universe/", import.meta.url);
+for (const file of await readdir(universeDir))
+  await copyFile(new URL(file, universeDir), new URL(file, resourceDir));
+
 // Restore any rendered narration from the cache. The clips are real money, so a catalog rebuild
 // must never silently drop them and force a re-render — see scripts/render-narration.mjs.
 const cacheDir = new URL("../.narration-cache/", import.meta.url);
