@@ -61,5 +61,5 @@ test("the cosmic address journey crosses all four atlas layers", () => {
     if (stop.mode === "local") assert.ok(NEARBY_GALAXIES.some((galaxy) => galaxy.id === stop.focus));
     if (stop.mode === "universe") assert.ok(UNIVERSE_LANDMARKS.some((landmark) => landmark.id === stop.focus));
   }
-  assert.equal(COSMIC_JOURNEY.at(-1)?.focus, "local-group");
+  assert.equal(COSMIC_JOURNEY.at(-1)?.focus, "cmb");
 });

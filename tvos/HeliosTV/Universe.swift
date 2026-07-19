@@ -115,9 +115,11 @@ enum Universe {
         material.lightingModel = .constant
         material.diffuse.contents = image("cmb-wmap-2048", ext: "webp")
         material.cullMode = .front
-        // Quieter than the web's .34: the HDR camera's exposure lifts it on TV, and the wall is
-        // this beat's backdrop, never its wallpaper.
-        material.transparency = 0.16
+        // The bake already biases the texture toward a near-background baseline with only true
+        // temperature extremes glowing (scripts/bake-universe-cmb.mjs), so this headroom is lower
+        // than the web's .58 for the same reason as the finale's other scales: the HDR camera's
+        // exposure lifts everything, and the wall must stay behind the web, never compete with it.
+        material.transparency = 0.28
         material.blendMode = .alpha
         material.writesToDepthBuffer = false
         material.readsFromDepthBuffer = false
