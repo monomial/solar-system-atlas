@@ -9,7 +9,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { ALL_BODIES, DWARFS, MOONS, ORBITING_BODIES, PLANETS, SMALL_BODIES } from "./bodies";
 import type { BodyName, Planet, SmallBodyCategory } from "./bodies";
 import { deg, heliocentricDistanceAU, heliocentricPosition, orbitPath } from "./orbits";
-import { useAmbient } from "./useAmbient";
+import type { AmbientApi, AmbientState } from "./useAmbient";
 
 type ScaleMode = "readable" | "linear" | "true";
 
@@ -143,11 +143,10 @@ function labelTexture(name: string, color: string) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
-type SolarSystemProps = { onAmbientModeChange?: (active:boolean)=>void };
+type SolarSystemProps = { apiRef:React.MutableRefObject<AmbientApi|null>;ambient:AmbientState };
 
-export default function Home({onAmbientModeChange}:SolarSystemProps) {
+export default function Home({apiRef,ambient}:SolarSystemProps) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<{ focus:(name:BodyName,close?:boolean)=>void;scale:(mode:ScaleMode)=>void;smallBodies:(category:SmallBodyCategory)=>void;date:(date:Date)=>void;previewDate:(date:Date)=>void;flyTo:(name:BodyName,onArrive:()=>void)=>void;setAmbient:(on:boolean)=>void }|null>(null);
   const [selected, setSelected] = useState<BodyName | null>("Earth");
   const [tourIndex, setTourIndex] = useState<number | null>(null);
   const [scaleMode, setScaleMode] = useState<ScaleMode>("readable");
@@ -158,10 +157,6 @@ export default function Home({onAmbientModeChange}:SolarSystemProps) {
   const selectedDate=useMemo(()=>dateForMap(mapDate),[mapDate]);const isToday=mapDate===today;
   const [isPlaying,setIsPlaying]=useState(false);const [playbackRate,setPlaybackRate]=useState(30);const [playbackDirection,setPlaybackDirection]=useState<1|-1>(1);const simulationDateRef=useRef(selectedDate);
   const selectedBody = useMemo(() => ALL_BODIES.find(p => p.name === selected), [selected]);
-  const ambient = useAmbient(() => apiRef.current);
-
-  useEffect(()=>onAmbientModeChange?.(ambient.phase!=="off"),[ambient.phase,onAmbientModeChange]);
-
   useEffect(() => {
     if (!mountRef.current) return;
     const mount = mountRef.current;
@@ -465,6 +460,7 @@ export default function Home({onAmbientModeChange}:SolarSystemProps) {
       scene.clear();
     }
     return()=>{ window.clearTimeout(loadFallback);window.clearTimeout(bootstrap);cancelAnimationFrame(frame);resizeObserver.disconnect();window.removeEventListener("resize",resize);renderer.domElement.removeEventListener("pointerdown",onPointerDown);renderer.domElement.removeEventListener("pointerup",onPointer);renderer.domElement.removeEventListener("pointermove",onMove);controls.dispose();composer.dispose();disposeScene();renderer.dispose();mount.replaceChildren();apiRef.current=null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- must stay [] (mount-once scene, see CLAUDE.md); apiRef is a stable ref CosmicAtlas creates once, ESLint just can't prove that for a prop-supplied ref
   },[]);
 
   useEffect(()=>{
@@ -480,6 +476,7 @@ export default function Home({onAmbientModeChange}:SolarSystemProps) {
       frame=requestAnimationFrame(tick);
     }
     frame=requestAnimationFrame(tick);return()=>cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apiRef/finishPlayback are stable by construction; adding them would restart playback on every render
   },[isPlaying,playbackRate,playbackDirection]);
 
   function choose(name: BodyName) { setTourIndex(null); apiRef.current?.focus(name); }
@@ -534,16 +531,6 @@ export default function Home({onAmbientModeChange}:SolarSystemProps) {
         </div>
       </div>}
 
-      {ambient.phase==="playing" && <>
-        <div className="ambient-chip"><i/>LIVE</div>
-        <button className="ambient-exit" onClick={ambient.exit} aria-label="Leave ambient mode">×</button>
-        {ambient.caption && <div className="ambient-card" key={ambient.caption.name} aria-live="polite">
-          <div className="eyebrow">{ambient.caption.kind}</div>
-          <h1>{ambient.caption.name}</h1>
-          <div className="ambient-distance">{ambient.caption.distance}</div>
-          <p>{ambient.caption.line}</p>
-        </div>}
-      </>}
       <header className="topbar">
         <button className="brand" onClick={()=>{setTourIndex(null);apiRef.current?.scale(scaleMode)}} aria-label="Return to full solar system">
           <span className="brand-mark"><i/><i/><b/></span><span><strong>HELIOS</strong><small>Solar system atlas</small></span>

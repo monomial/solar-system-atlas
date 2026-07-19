@@ -6,15 +6,17 @@ import DeepSpace from "./DeepSpace";
 import Universe from "./Universe";
 import { COSMIC_JOURNEY } from "./cosmic";
 import type { AtlasMode } from "./cosmic";
+import { useAmbient } from "./useAmbient";
+import type { AmbientApi } from "./useAmbient";
 
 const MODE_LABELS: Record<AtlasMode, string> = { solar:"Solar system",galaxy:"Milky Way",local:"Local Group",universe:"Universe" };
 
 export default function CosmicAtlas() {
   const [mode,setMode]=useState<AtlasMode>("solar");
-  const [ambient,setAmbient]=useState(false);
   const [transition,setTransition]=useState<{from:AtlasMode;to:AtlasMode}|null>(null);
   const [journey,setJourney]=useState<number|null>(null);
   const timers=useRef<number[]>([]);
+  const solarApiRef=useRef<AmbientApi|null>(null);
 
   useEffect(()=>()=>timers.current.forEach(window.clearTimeout),[]);
 
@@ -25,6 +27,7 @@ export default function CosmicAtlas() {
     timers.current.push(window.setTimeout(()=>setMode(next),320));
     timers.current.push(window.setTimeout(()=>setTransition(null),980));
   }
+  const ambient=useAmbient({solarApi:()=>solarApiRef.current,navigate});
   function beginJourney(){setJourney(0);navigate("solar");}
   function moveJourney(delta:number){
     if(journey===null)return;
@@ -33,10 +36,10 @@ export default function CosmicAtlas() {
   }
   const focus=journey===null?undefined:COSMIC_JOURNEY[journey].focus;
 
-  return <div className={`cosmic-host ${journey!==null?"journey-active":""}`}>
-    {mode==="solar"?<SolarSystem onAmbientModeChange={setAmbient}/>:mode==="universe"?<Universe focusId={focus}/>:<DeepSpace key={mode} mode={mode} focusId={focus}/>}
+  return <div className={`cosmic-host ${journey!==null?"journey-active":""} ${ambient.phase!=="off"?"ambient-mode":""}`}>
+    {mode==="solar"?<SolarSystem apiRef={solarApiRef} ambient={ambient}/>:mode==="universe"?<Universe focusId={focus}/>:<DeepSpace key={mode} mode={mode} focusId={focus}/>}
 
-    {!ambient&&<>
+    {ambient.phase==="off"&&<>
       <nav className="cosmic-scale-nav" aria-label="Choose atlas scale">
         {(Object.keys(MODE_LABELS) as AtlasMode[]).map(value=><button key={value} className={`${mode===value?"active ":""}${value==="universe"?"universe":""}`} onClick={()=>navigate(value)} aria-current={mode===value?"page":undefined}><i/>{MODE_LABELS[value]}{value==="universe"&&<small>93 billion light-year view</small>}</button>)}
       </nav>
@@ -46,6 +49,17 @@ export default function CosmicAtlas() {
     {transition&&<div className="cosmic-transition" aria-live="polite">
       <div><span>{MODE_LABELS[transition.from]}</span><i/><strong>{MODE_LABELS[transition.to]}</strong></div>
     </div>}
+
+    {ambient.phase==="playing"&&<>
+      <div className="ambient-chip"><i/>LIVE</div>
+      <button className="ambient-exit" onClick={ambient.exit} aria-label="Leave ambient mode">×</button>
+      {ambient.caption&&<div className="ambient-card" key={ambient.caption.name} aria-live="polite">
+        <div className="eyebrow">{ambient.caption.kind}</div>
+        <h1>{ambient.caption.name}</h1>
+        <div className="ambient-distance">{ambient.caption.distance}</div>
+        <p>{ambient.caption.line}</p>
+      </div>}
+    </>}
 
     {journey!==null&&<section className="cosmic-tour-card" aria-live="polite">
       <div className="cosmic-tour-progress">{COSMIC_JOURNEY.map((_,index)=><i key={index} className={index<=journey?"done":""}/>)}</div>

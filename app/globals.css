@@ -43,7 +43,7 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible,
 
 /* ---- Ambient mode: a lean-back, narrated auto-tour (see app/ambient.ts) ---- */
 /* Hide every piece of the lean-forward chrome. Only the canvas and the ambient overlay remain. */
-.ambient-mode .topbar,.ambient-mode .left-tools,.ambient-mode .planet-rail,.ambient-mode .dwarf-rail,.ambient-mode .small-body-rail,.ambient-mode .playback-bar,.ambient-mode .info-panel,.ambient-mode .tour-card,.ambient-mode .footer-note{opacity:0;pointer-events:none;transition:opacity .5s ease}
+.ambient-mode .topbar,.ambient-mode .left-tools,.ambient-mode .planet-rail,.ambient-mode .dwarf-rail,.ambient-mode .small-body-rail,.ambient-mode .playback-bar,.ambient-mode .info-panel,.ambient-mode .tour-card,.ambient-mode .footer-note,.ambient-mode .deep-topbar,.ambient-mode .deep-tools,.ambient-mode .deep-rail,.ambient-mode .cosmic-info,.ambient-mode .deep-footer{opacity:0;pointer-events:none;transition:opacity .5s ease}
 
 /* The Begin gate. Browsers block audio until a gesture, so entering the tour needs one tap. */
 .ambient-gate{position:fixed;inset:0;z-index:40;display:grid;place-items:center;background:radial-gradient(circle at 50% 40%,rgba(8,12,30,.72),rgba(2,3,10,.94));backdrop-filter:blur(3px);animation:ambient-fade .6s ease}

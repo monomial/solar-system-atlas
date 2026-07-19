@@ -17,10 +17,23 @@ export const AMBIENT_TOUR: BodyName[] = [
   "Uranus", "Neptune", "Pluto", "Haumea", "Makemake", "Eris",
 ];
 
+export type AmbientKey = BodyName | "Milky Way" | "Local Group" | "Universe";
+
+export const AMBIENT_FINALE: {mode:"galaxy"|"local"|"universe";narrationKey:AmbientKey;name:string;kind:string;distance:string}[] = [
+  {mode:"galaxy",narrationKey:"Milky Way",name:"THE MILKY WAY",kind:"Barred spiral galaxy",distance:"The Sun is 26,000 light-years from its centre"},
+  {mode:"local",narrationKey:"Local Group",name:"THE LOCAL GROUP",kind:"Our family of galaxies",distance:"Andromeda is 2.5 million light-years away"},
+  {mode:"universe",narrationKey:"Universe",name:"THE COSMIC WEB",kind:"The observable universe",distance:"Every point of light is an entire galaxy"},
+];
+
 export const PAUSE_AFTER_LINE_MS = 4500;
 export const MAX_LINE_MS = 22000; // ceiling if an audio 'ended' event never fires
 
 export type Caption = { name: string; kind: string; distance: string; line: string };
+
+export function finaleCaptionFor(beat:typeof AMBIENT_FINALE[number],lineIndex:number):Caption {
+  const lines=NARRATION[beat.narrationKey]??[""];
+  return {name:beat.name,kind:beat.kind,distance:beat.distance,line:lines.length?lines[lineIndex%lines.length]:""};
+}
 
 export function captionFor(name: BodyName, lineIndex: number): Caption {
   const body = ALL_BODIES.find((b) => b.name === name)!;
@@ -41,7 +54,7 @@ export function outernessFor(name: BodyName): number {
 
 // The narration voice: a rendered clip if we have one, else the browser's own speech synth as a
 // placeholder — the same clip-preferred, synth-fallback pattern the tvOS Narrator uses.
-export function speakLine(name: BodyName, lineIndex: number, text: string, onEnd: () => void): () => void {
+export function speakLine(name: AmbientKey, lineIndex: number, text: string, onEnd: () => void): () => void {
   let done = false;
   const finish = () => { if (!done) { done = true; onEnd(); } };
   const ceiling = window.setTimeout(finish, MAX_LINE_MS);
