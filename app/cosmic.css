@@ -33,6 +33,7 @@
   .deep-shell{min-height:0;height:100dvh}.deep-topbar{height:calc(58px + env(safe-area-inset-top));padding:env(safe-area-inset-top) 10px 0}.deep-topbar .brand small{display:none}.deep-scale span{font-size:11px}.deep-scale small{display:none}
   .cosmic-scale-nav{top:calc(64px + env(safe-area-inset-top));left:10px;right:10px;transform:none}.cosmic-scale-nav button{flex:1;justify-content:center;height:32px;padding:0 5px;font-size:7px}.cosmic-scale-nav button.universe{height:32px}.cosmic-scale-nav button.universe small{display:none}
   .cosmic-journey-launch{top:calc(108px + env(safe-area-inset-top));left:10px;right:auto;height:31px;padding:0 11px;font-size:7px}
+  .starbots-toggle{top:calc(147px + env(safe-area-inset-top));left:10px;right:auto;height:31px;padding:0 11px;font-size:7px}
   .cosmic-host .date-chip{top:calc(108px + env(safe-area-inset-top));right:10px}.cosmic-host .left-tools{top:calc(151px + env(safe-area-inset-top))}
   .deep-tools{top:calc(151px + env(safe-area-inset-top));left:10px;width:142px}.deep-tools p{display:none}.deep-view-picker{margin-top:8px}.deep-honesty{font-size:7px;line-height:1.4}
   .cosmic-info{top:auto;left:8px;right:8px;bottom:82px;width:auto;max-height:46dvh;padding:20px 21px;border:1px solid rgba(255,255,255,.14);border-radius:5px;background:rgba(5,8,16,.94)}.cosmic-info h1{font-size:26px}.cosmic-info .panel-index{margin-bottom:16px}.cosmic-info .lede{font-size:11px}.cosmic-facts{margin:15px 0}.cosmic-facts>div{padding:11px}.cosmic-info .wild-fact{margin-top:14px}

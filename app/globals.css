@@ -20,6 +20,21 @@ button,a,summary{font:inherit}.atlas-shell{position:relative;width:100vw;height:
 .tour-card{position:absolute;z-index:12;left:50%;bottom:118px;transform:translateX(-50%);width:min(560px,calc(100vw - 32px));padding:28px 32px 24px;background:linear-gradient(135deg,rgba(13,17,33,.94),rgba(5,8,17,.9));border:1px solid rgba(228,201,132,.26);box-shadow:0 25px 90px #000d;backdrop-filter:blur(25px)}.tour-progress{display:flex;gap:5px;margin-bottom:22px}.tour-progress i{height:2px;flex:1;background:#303647}.tour-progress i.done{background:#d2b96f;box-shadow:0 0 9px #c59a45}.tour-card h2{font:400 31px/1.05 Georgia,serif;margin:9px 0 10px}.tour-card>p{color:#9da3b1;font:14px/1.55 Georgia,serif;margin:0;max-width:460px}.tour-actions{display:flex;align-items:center;gap:12px;margin-top:23px}.tour-actions button{height:38px;min-width:42px;border:1px solid var(--line);background:#0a0d19;color:#aab0bc;cursor:pointer}.tour-actions span{font-size:9px;color:#686f81;letter-spacing:.15em}.tour-actions .next{margin-left:auto;padding:0 18px;background:#ece7db;color:#111521;border-color:#ece7db;font-size:9px;font-weight:800;letter-spacing:.12em}
 .footer-note{position:absolute;z-index:8;left:30px;bottom:20px;color:#51596b;font-size:8px;letter-spacing:.08em}.footer-note>span{color:#949baa;font-weight:800;margin-right:8px}.footer-note details{display:inline-block;margin-left:13px;position:relative}.footer-note summary{cursor:pointer;color:#9a8a65;text-transform:uppercase}.footer-note details div{position:absolute;bottom:20px;left:0;width:210px;padding:11px;background:#090c17;border:1px solid var(--line)}.footer-note a{display:block;color:#aeb3bf;text-decoration:none;padding:5px 2px}.footer-note a:hover{color:#fff}
 button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #e5cc8e;outline-offset:2px}
+
+/* Starbots Mode's bridge/comms-frame card — one component used identically in Ambient (replaces
+   .ambient-card) and Explore (overlays, then reveals .info-panel underneath once the scene ends).
+   Defined here, before the responsive overrides below, so the @media(max-width:640px) block
+   further down actually wins the cascade instead of being overridden by this base rule. */
+.starbots-toggle{position:fixed;z-index:31;top:142px;right:28px;height:34px;padding:0 15px;border:1px solid var(--line);border-radius:4px;background:rgba(9,12,22,.78);color:#9098a9;font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;backdrop-filter:blur(14px)}
+.starbots-toggle.active{border-color:rgba(201,139,224,.4);background:rgba(37,20,42,.82);color:#e3b6f2}
+.bridge-card{position:fixed;left:6vw;bottom:8vh;z-index:38;display:flex;gap:20px;align-items:flex-start;max-width:min(46vw,620px);padding:22px 26px;background:linear-gradient(145deg,rgba(11,14,27,.92),rgba(5,8,17,.85));border:1px solid rgba(255,255,255,.14);border-radius:6px;box-shadow:0 28px 80px #000b;backdrop-filter:blur(24px);animation:ambient-rise .6s ease}
+.bridge-progress{position:absolute;top:-16px;left:26px;right:26px;display:flex;gap:4px}
+.bridge-progress i{height:2px;flex:1;background:#303748}.bridge-progress i.done{background:#e0c17a}
+.bridge-portrait{position:relative;flex:none;width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.06);border:2px solid var(--speaker-color,#8899bb);display:grid;place-items:center;overflow:hidden}
+.bridge-portrait-fallback{color:var(--speaker-color,#8899bb);font:700 24px Georgia,serif}
+.bridge-portrait img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.bridge-speaker{display:block;color:var(--gold);font-size:9px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;margin-bottom:8px}
+.bridge-text p{margin:0;font:16px/1.5 Georgia,serif;color:#eceef2}
 @media(max-width:900px){.topbar{padding:0 18px}.brand{width:auto}.brand small{display:none}.date-chip{position:absolute;right:18px;top:91px}.left-tools{left:18px;top:100px}.info-panel{right:16px;top:141px;bottom:185px;width:340px}.planet-rail{bottom:40px}.dwarf-rail,.small-body-rail{bottom:97px}.small-body-rail{width:min(620px,calc(100vw - 36px));min-width:0}.playback-bar{bottom:142px}.footer-note{display:none}}
 @media(max-width:640px){
   .atlas-shell{min-height:0;height:100svh;height:100dvh}
@@ -36,6 +51,13 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible,
   .panel-open .planet-rail,.panel-open .dwarf-rail,.panel-open .small-body-rail,.panel-open .playback-bar,.tour-open .planet-rail,.tour-open .dwarf-rail,.tour-open .small-body-rail,.tour-open .playback-bar{opacity:0;visibility:hidden;pointer-events:none}.panel-open .left-tools,.tour-open .left-tools{opacity:0;visibility:hidden;pointer-events:none}
   .info-panel{left:10px;right:10px;top:auto;bottom:calc(10px + env(safe-area-inset-bottom));width:auto;max-height:min(64dvh,540px);padding:22px 20px 20px;border-radius:18px 18px 4px 4px;overscroll-behavior:contain}.close,.tour-close{width:44px;height:44px;right:10px;top:10px}.info-panel h1{font-size:clamp(30px,9vw,38px);margin:9px 46px 10px 0}.lede{font-size:13px;line-height:1.48;margin-bottom:14px}.panel-index{display:none}.fact-grid>div{min-height:68px;padding:9px}.fact-grid strong{font-size:10px}.wild-fact{margin-top:12px;padding:12px 13px}.wild-fact p{font-size:12px}.appearance-note{gap:10px}.appearance-note p{font-size:7px}.moon-family button{min-height:36px;padding:7px 10px;font-size:8px}.diameter{display:none}
   .tour-card{bottom:calc(10px + env(safe-area-inset-bottom));width:calc(100vw - 20px);max-height:50dvh;padding:20px;border-radius:18px 18px 4px 4px;overflow:auto;overscroll-behavior:contain}.tour-progress{margin:0 48px 17px 0}.tour-card h2{font-size:clamp(22px,6.5vw,28px);margin:7px 44px 8px 0}.tour-card>p{font-size:13px;line-height:1.45}.tour-actions{margin-top:17px}.tour-actions button{min-width:44px;height:44px}.tour-actions .next{padding:0 17px;font-size:9px}
+  /* Was still using the desktop 46vw/620px cap, which on a phone-width column squeezed
+     dialogue to one word per line and blew the card up to most of the viewport height. */
+  .bridge-card{left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));max-width:none;max-height:min(56dvh,420px);overflow:auto;overscroll-behavior:contain;padding:18px 18px 16px;gap:14px;border-radius:18px 18px 4px 4px}
+  .bridge-progress{left:18px;right:18px;top:-13px}
+  .bridge-portrait{width:48px;height:48px}
+  .bridge-portrait-fallback{font-size:19px}
+  .bridge-text p{font-size:14px;line-height:1.45}
 }
 @media(max-width:380px){.brand-mark{display:none}.brand{min-width:72px}.topbar nav button{padding:0 8px}.now-button{display:none}.simulation-date{min-width:82px}.speed-picker select{min-width:78px}.info-panel{max-height:68dvh}}
 @media(max-height:560px) and (orientation:landscape){.date-chip{top:calc(66px + env(safe-area-inset-top));right:12px;transform:none}.left-tools{display:none}.planet-rail{left:10px;transform:none;width:min(58vw,560px)}.dwarf-rail,.small-body-rail{display:none}.playback-bar{left:auto;right:10px;transform:none;width:auto}.info-panel{top:calc(68px + env(safe-area-inset-top));bottom:calc(8px + env(safe-area-inset-bottom));left:auto;right:10px;width:min(390px,52vw);max-height:none;border-radius:14px}.tour-card{left:auto;right:10px;transform:none;width:min(500px,58vw);max-height:calc(100dvh - 76px);border-radius:14px}}
@@ -66,19 +88,6 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible,
 .ambient-chip i{width:10px;height:10px;border-radius:50%;background:#54d98c;box-shadow:0 0 12px #54d98c}
 .ambient-exit{position:fixed;top:34px;left:44px;z-index:39;width:52px;height:52px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.35);color:rgba(255,255,255,.7);font-size:26px;line-height:1;cursor:pointer;transition:background .15s ease,color .15s ease}
 .ambient-exit:hover{background:rgba(0,0,0,.6);color:#fff}
-
-/* Starbots Mode's bridge/comms-frame card — one component used identically in Ambient (replaces
-   .ambient-card) and Explore (overlays, then reveals .info-panel underneath once the scene ends). */
-.starbots-toggle{position:fixed;z-index:31;top:142px;right:28px;height:34px;padding:0 15px;border:1px solid var(--line);border-radius:4px;background:rgba(9,12,22,.78);color:#9098a9;font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;backdrop-filter:blur(14px)}
-.starbots-toggle.active{border-color:rgba(201,139,224,.4);background:rgba(37,20,42,.82);color:#e3b6f2}
-.bridge-card{position:fixed;left:6vw;bottom:8vh;z-index:38;display:flex;gap:20px;align-items:flex-start;max-width:min(46vw,620px);padding:22px 26px;background:linear-gradient(145deg,rgba(11,14,27,.92),rgba(5,8,17,.85));border:1px solid rgba(255,255,255,.14);border-radius:6px;box-shadow:0 28px 80px #000b;backdrop-filter:blur(24px);animation:ambient-rise .6s ease}
-.bridge-progress{position:absolute;top:-16px;left:26px;right:26px;display:flex;gap:4px}
-.bridge-progress i{height:2px;flex:1;background:#303748}.bridge-progress i.done{background:#e0c17a}
-.bridge-portrait{position:relative;flex:none;width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.06);border:2px solid var(--speaker-color,#8899bb);display:grid;place-items:center;overflow:hidden}
-.bridge-portrait-fallback{color:var(--speaker-color,#8899bb);font:700 24px Georgia,serif}
-.bridge-portrait img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.bridge-speaker{display:block;color:var(--gold);font-size:9px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;margin-bottom:8px}
-.bridge-text p{margin:0;font:16px/1.5 Georgia,serif;color:#eceef2}
 
 @keyframes ambient-fade{from{opacity:0}to{opacity:1}}
 @keyframes ambient-rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
