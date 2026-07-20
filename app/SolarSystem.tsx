@@ -10,6 +10,10 @@ import { ALL_BODIES, DWARFS, MOONS, ORBITING_BODIES, PLANETS, SMALL_BODIES } fro
 import type { BodyName, Planet, SmallBodyCategory } from "./bodies";
 import { deg, heliocentricDistanceAU, heliocentricPosition, orbitPath } from "./orbits";
 import type { AmbientApi, AmbientState } from "./useAmbient";
+import { playScene, ShuffleBag } from "./ambient";
+import type { BridgeCaption } from "./ambient";
+import { BRIDGE_SCENES, isBridgeBody } from "./bridgeScenes";
+import BridgeCard from "./BridgeCard";
 
 type ScaleMode = "readable" | "linear" | "true";
 
@@ -143,11 +147,19 @@ function labelTexture(name: string, color: string) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
-type SolarSystemProps = { apiRef:React.MutableRefObject<AmbientApi|null>;ambient:AmbientState };
+type SolarSystemProps = { apiRef:React.MutableRefObject<AmbientApi|null>;ambient:AmbientState;starbotsMode:boolean };
 
-export default function Home({apiRef,ambient}:SolarSystemProps) {
+export default function Home({apiRef,ambient,starbotsMode}:SolarSystemProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<BodyName | null>("Earth");
+  // Starbots Mode's Explore-mode bridge scene, shown instead of .info-panel while a scene plays,
+  // then cleared so .info-panel reveals underneath (see CLAUDE.md's Ambient mode notes on why
+  // React-level state, not a ref, is what the mount-once effect below reaches for on every turn).
+  const [exploreBridgeCaption, setExploreBridgeCaption] = useState<BridgeCaption | null>(null);
+  // Bridges React-level values into the mount-once effect, which cannot read fresh props/state
+  // from its own closure without tearing down and rebuilding the whole scene (see CLAUDE.md).
+  const ambientRef = useRef(ambient); useEffect(() => { ambientRef.current = ambient; }, [ambient]);
+  const starbotsModeRef = useRef(starbotsMode); useEffect(() => { starbotsModeRef.current = starbotsMode; }, [starbotsMode]);
   const [tourIndex, setTourIndex] = useState<number | null>(null);
   const [scaleMode, setScaleMode] = useState<ScaleMode>("readable");
   const [smallBodyCategory,setSmallBodyCategory]=useState<SmallBodyCategory>("off");
@@ -346,8 +358,34 @@ export default function Home({apiRef,ambient}:SolarSystemProps) {
     // Ambient mode: the outward auto-tour drives the camera through flyTo and needs to know when
     // each flight lands, so it can speak on arrival. Kept inside the mount-once effect per CLAUDE.md.
     let ambientActive=false; let ambientArrival:(()=>void)|null=null;
-    function focus(name: BodyName, close = true) {
+    // Starbots Mode's Explore-mode scene state — same shape as useAmbient.ts's cancellation, at a
+    // smaller scope, since focus() has no equivalent orchestrator to reuse (see design doc: it's
+    // called by both the sidebar rail (via choose()) and raycast clicks (onPointer) directly, so
+    // this lives in focus() itself rather than choose() alone, or raycast clicks would miss it).
+    const exploreSceneBag=new ShuffleBag();
+    let exploreGen=0,exploreSceneActiveFor:BodyName|null=null,exploreStopScene:(()=>void)|null=null;
+    // `skipSelectionEffects` covers two callers that are NOT a fresh user selection and must not
+    // trigger the ambient-exit/bridge-scene logic below: Ambient's own flyTo arrivals, and
+    // updateDate's internal re-focus on the same still-selected body as the sim clock advances
+    // (without this, every playback frame would restart that body's bridge scene from scratch).
+    function focus(name: BodyName, close = true, skipSelectionEffects = false) {
       const body = bodies.get(name) ?? regionTargets.get(name); if (!body) return;
+      if(!skipSelectionEffects){
+        if(ambientActive)ambientRef.current.exit(); // a direct click during Ambient exits it, same as Escape — see design doc
+        if(exploreSceneActiveFor!==name){
+          exploreGen++;const gen=exploreGen;
+          exploreStopScene?.();exploreStopScene=null;exploreSceneActiveFor=null;
+          if(starbotsModeRef.current&&isBridgeBody(name)){
+            exploreSceneActiveFor=name;
+            const scenes=BRIDGE_SCENES[name],sceneIndex=exploreSceneBag.next(name,scenes.length),scene=scenes[sceneIndex];
+            exploreStopScene=playScene(name,sceneIndex,scene,{
+              isCancelled:()=>gen!==exploreGen,
+              onTurn:(turn,turnIndex)=>setExploreBridgeCaption({body:name,speaker:turn.speaker,text:turn.text,turnIndex,totalTurns:scene.turns.length}),
+            },()=>{ if(gen!==exploreGen)return; exploreSceneActiveFor=null; setExploreBridgeCaption(null); });
+          } else setExploreBridgeCaption(null);
+        }
+        // else: re-click on a body already mid-scene — no-op, the in-flight scene keeps playing
+      }
       lastFocused=name;viewingFullSystem=false;
       const isRegion=name==="Asteroid Belt"||name==="Kuiper Belt";
       showMoonFamily(isRegion?null:name);
@@ -397,10 +435,10 @@ export default function Home({apiRef,ambient}:SolarSystemProps) {
         const line=orbitLines.get(body.name)!;const pts=orbitVectors(body,activeDate,body.category?300:180).map(point=>transformed(point,activeScaleMode));
         line.geometry.dispose();line.geometry=new THREE.BufferGeometry().setFromPoints(pts);
       }
-      if(!viewingFullSystem&&lastFocused)focus(lastFocused,true);
+      if(!viewingFullSystem&&lastFocused)focus(lastFocused,true,true);
     }
     apiRef.current={focus,scale:rebuildScale,smallBodies:setSmallBodies,date:updateDate,previewDate:date=>positionBodies(date,true),
-      flyTo:(name,onArrive)=>{ambientArrival=onArrive;focus(name,true);},
+      flyTo:(name,onArrive)=>{ambientArrival=onArrive;focus(name,true,true);},
       setAmbient:(on)=>{ambientActive=on;controls.enabled=!on;if(!on)ambientArrival=null;}};
 
     const tapStart={x:0,y:0,time:0,moved:false};
@@ -459,7 +497,7 @@ export default function Home({apiRef,ambient}:SolarSystemProps) {
       });
       scene.clear();
     }
-    return()=>{ window.clearTimeout(loadFallback);window.clearTimeout(bootstrap);cancelAnimationFrame(frame);resizeObserver.disconnect();window.removeEventListener("resize",resize);renderer.domElement.removeEventListener("pointerdown",onPointerDown);renderer.domElement.removeEventListener("pointerup",onPointer);renderer.domElement.removeEventListener("pointermove",onMove);controls.dispose();composer.dispose();disposeScene();renderer.dispose();mount.replaceChildren();apiRef.current=null; };
+    return()=>{ window.clearTimeout(loadFallback);window.clearTimeout(bootstrap);cancelAnimationFrame(frame);resizeObserver.disconnect();window.removeEventListener("resize",resize);renderer.domElement.removeEventListener("pointerdown",onPointerDown);renderer.domElement.removeEventListener("pointerup",onPointer);renderer.domElement.removeEventListener("pointermove",onMove);exploreStopScene?.();controls.dispose();composer.dispose();disposeScene();renderer.dispose();mount.replaceChildren();apiRef.current=null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- must stay [] (mount-once scene, see CLAUDE.md); apiRef is a stable ref CosmicAtlas creates once, ESLint just can't prove that for a prop-supplied ref
   },[]);
 
@@ -581,7 +619,9 @@ export default function Home({apiRef,ambient}:SolarSystemProps) {
         <button className="now-button" onClick={resetToday}>NOW</button>
       </section>}
 
-      {selectedBody && tourIndex===null && <aside className="info-panel" aria-live="polite">
+      {selectedBody && tourIndex===null && exploreBridgeCaption && <BridgeCard caption={exploreBridgeCaption}/>}
+
+      {selectedBody && tourIndex===null && !exploreBridgeCaption && <aside className="info-panel" aria-live="polite">
         <button className="close" onClick={()=>setSelected(null)} aria-label="Close information panel">×</button>
         <div className="panel-index">{moonIndex>=0?`MOON ${String(familyMoons.indexOf(selectedBody)+1).padStart(2,"0")}`:dwarfIndex>=0?`DWARF ${String(dwarfIndex+1).padStart(2,"0")}`:smallBodyIndex>=0?`${selectedBody.category?.toUpperCase()} ${String(smallBodyIndex+1).padStart(2,"0")}`:String(PLANETS.indexOf(selectedBody)).padStart(2,"0")} <span>/ {moonIndex>=0?String(familyMoons.length).padStart(2,"0"):dwarfIndex>=0?"05":smallBodyIndex>=0?String(SMALL_BODIES.length).padStart(2,"0"):"08"}</span></div>
         <div className="eyebrow">{selectedBody.kind}</div>

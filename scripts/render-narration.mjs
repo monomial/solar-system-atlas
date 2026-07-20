@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { NARRATION } from "../app/bodies.ts";
+import { BRIDGE_SCENES, SPEAKER_VOICES } from "../app/bridgeScenes.ts";
 
 const run = promisify(execFile);
 
@@ -161,6 +162,40 @@ const lines = () =>
     spoken.map((text, index) => ({ id: `narration-${body.toLowerCase().replace(/\s+/g, "-")}-${index}`, body, text: forSpeech(text) })),
   );
 
+/** Starbots Mode's scene/turn lines, each carrying its own speaker voice (unlike `lines()`,
+ *  which all share the single global TTS_VOICE). Composite ids (body-scene-turn) keep these
+ *  out of the per-body NARRATION id space entirely, so there is no collision to worry about.
+ *  A malformed scene or turn is skipped with a warning, not a crash — one bad entry shouldn't
+ *  take down the render for every other line in the build. */
+const sceneLines = () => {
+  const out = [];
+  for (const [body, scenes] of Object.entries(BRIDGE_SCENES)) {
+    if (!Array.isArray(scenes)) { console.warn(`Skipping ${body}: scenes is not an array`); continue; }
+    scenes.forEach((scene, sceneIndex) => {
+      if (!scene || !Array.isArray(scene.turns)) { console.warn(`Skipping ${body} scene ${sceneIndex}: missing turns`); return; }
+      scene.turns.forEach((turn, turnIndex) => {
+        const turnVoice = turn && SPEAKER_VOICES[turn.speaker];
+        if (!turn?.text || !turnVoice) { console.warn(`Skipping ${body} scene ${sceneIndex} turn ${turnIndex}: malformed entry`); return; }
+        out.push({
+          id: `narration-${body.toLowerCase().replace(/\s+/g, "-")}-scene${sceneIndex}-turn${turnIndex}`,
+          text: forSpeech(turn.text),
+          voice: turnVoice,
+        });
+      });
+    });
+  }
+  return out;
+};
+
+function groupByVoice(entries) {
+  const groups = new Map();
+  for (const entry of entries) {
+    if (!groups.has(entry.voice)) groups.set(entry.voice, []);
+    groups.get(entry.voice).push(entry);
+  }
+  return groups;
+}
+
 const hash = (text, voice) =>
   createHash("sha256").update(`${text}|${voice}|${model}|${DELIVERY}|${process.env.TTS_SPEED ?? 0.9}`).digest("hex").slice(0, 16);
 
@@ -209,29 +244,37 @@ if (!voice) { console.error("Set TTS_VOICE. Run with --sample first to choose on
 
 const manifest = existsSync(MANIFEST) ? JSON.parse(await readFile(MANIFEST, "utf8")) : {};
 const force = args.includes("--force");
-const all = lines();
 let rendered = 0, cached = 0;
 
-const stale = all.filter(({ id, text }) =>
-  force || manifest[id] !== hash(text, voice) || !existsSync(`${CACHE}${id}.m4a`));
-cached = all.length - stale.length;
+/** Renders one group of lines that all share a single voice — one call to provider.batch()
+ *  per group, since Kokoro reloads its model per voice (see SPEAKER_VOICES in bridgeScenes.ts).
+ *  The body-narration group (global TTS_VOICE) and each Starbots speaker group both flow
+ *  through here, so caching/manifest/encode behavior stays identical between the two. */
+async function renderGroup(entries, groupVoice) {
+  const stale = entries.filter(({ id, text }) =>
+    force || manifest[id] !== hash(text, groupVoice) || !existsSync(`${CACHE}${id}.m4a`));
+  cached += entries.length - stale.length;
 
-if (stale.length && provider.batch) {
-  await provider.batch(stale, voice, CACHE);
-  for (const { id, text } of stale) {
-    await encode(`${CACHE}${id}.wav`, `${CACHE}${id}`);
-    manifest[id] = hash(text, voice);
-    rendered++;
-  }
-} else {
-  for (const { id, text } of stale) {
-    process.stdout.write(`  ${id} ... `);
-    await render(text, voice, `${CACHE}${id}`);
-    manifest[id] = hash(text, voice);
-    rendered++;
-    console.log("done");
+  if (stale.length && provider.batch) {
+    await provider.batch(stale, groupVoice, CACHE);
+    for (const { id, text } of stale) {
+      await encode(`${CACHE}${id}.wav`, `${CACHE}${id}`);
+      manifest[id] = hash(text, groupVoice);
+      rendered++;
+    }
+  } else {
+    for (const { id, text } of stale) {
+      process.stdout.write(`  ${id} ... `);
+      await render(text, groupVoice, `${CACHE}${id}`);
+      manifest[id] = hash(text, groupVoice);
+      rendered++;
+      console.log("done");
+    }
   }
 }
+
+await renderGroup(lines(), voice);
+for (const [groupVoice, entries] of groupByVoice(sceneLines())) await renderGroup(entries, groupVoice);
 
 await writeFile(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
 

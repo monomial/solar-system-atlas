@@ -6,6 +6,8 @@
 import { ALL_BODIES, NARRATION } from "./bodies";
 import type { BodyName } from "./bodies";
 import { heliocentricDistanceAU } from "./orbits";
+import type { BridgeBody, Scene, Speaker, Turn } from "./bridgeScenes";
+export { ShuffleBag } from "./shuffleBag";
 
 // Textures and audio are loaded by raw URL, which Next cannot rewrite for basePath — same reason
 // ASSET_BASE exists for textures in the scene.
@@ -25,10 +27,19 @@ export const AMBIENT_FINALE: {mode:"galaxy"|"local"|"universe";narrationKey:Ambi
   {mode:"universe",narrationKey:"Universe",name:"THE COSMIC WEB",kind:"The observable universe",distance:"Every point of light is an entire galaxy"},
 ];
 
-export const PAUSE_AFTER_LINE_MS = 4500;
+export const PAUSE_AFTER_LINE_MS = 4500; // after a destination's narration, or after a whole scene
+export const INTRA_TURN_PAUSE_MS = 1800; // between turns *within* a Starbots Mode scene — banter
+                                          // paced like back-and-forth, not four separate narrated
+                                          // facts; reusing PAUSE_AFTER_LINE_MS here would add
+                                          // 13-18s of dead air to a 3-4 turn exchange
 export const MAX_LINE_MS = 22000; // ceiling if an audio 'ended' event never fires
 
 export type Caption = { name: string; kind: string; distance: string; line: string };
+
+// What the bridge card (Starbots Mode) needs, distinct from Caption's single-narrator shape:
+// which character is talking (drives the portrait + label) and where in the scene this turn is.
+export type BridgeCaption = { body: BridgeBody; speaker: Speaker; text: string; turnIndex: number; totalTurns: number };
+
 
 export function finaleCaptionFor(beat:typeof AMBIENT_FINALE[number],lineIndex:number):Caption {
   const lines=NARRATION[beat.narrationKey]??[""];
@@ -54,29 +65,83 @@ export function outernessFor(name: BodyName): number {
 
 // The narration voice: a rendered clip if we have one, else the browser's own speech synth as a
 // placeholder — the same clip-preferred, synth-fallback pattern the tvOS Narrator uses.
-export function speakLine(name: AmbientKey, lineIndex: number, text: string, onEnd: () => void): () => void {
+function playClip(clipId: string, text: string, onEnd: () => void): () => void {
   let done = false;
   const finish = () => { if (!done) { done = true; onEnd(); } };
   const ceiling = window.setTimeout(finish, MAX_LINE_MS);
 
-  const clip = new Audio(`${ASSET_BASE}/narration/narration-${name.toLowerCase().replace(/\s+/g, "-")}-${lineIndex}.m4a`);
-  clip.addEventListener("ended", () => { window.clearTimeout(ceiling); finish(); });
-  clip.addEventListener("error", () => {
-    // No clip bundled — fall back to the browser voice so the line still speaks.
+  let fallbackStarted = false;
+  const fallback = () => {
+    // Both the 'error' event and a play() rejection can reach here — only start the fallback
+    // voice once. A play() rejection (e.g. the browser's autoplay policy blocking Explore
+    // mode's gesture-less playback) does not reliably fire 'error', so this can't rely on
+    // 'error' alone or a blocked clip goes silent for the full MAX_LINE_MS ceiling.
+    if (fallbackStarted) return;
+    fallbackStarted = true;
     if ("speechSynthesis" in window) {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 0.92;
       utterance.onend = () => { window.clearTimeout(ceiling); finish(); };
       speechSynthesis.speak(utterance);
+    } else {
+      finish(); // no speech synthesis either — don't hang until the ceiling for nothing
     }
-  });
-  clip.play().catch(() => { /* the error listener handles fallback */ });
+  };
+
+  const clip = new Audio(`${ASSET_BASE}/narration/${clipId}.m4a`);
+  clip.addEventListener("ended", () => { window.clearTimeout(ceiling); finish(); });
+  clip.addEventListener("error", fallback);
+  clip.play().catch(fallback);
 
   return () => {
     window.clearTimeout(ceiling);
     clip.pause();
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     done = true;
+  };
+}
+
+export function speakLine(name: AmbientKey, lineIndex: number, text: string, onEnd: () => void): () => void {
+  return playClip(`narration-${name.toLowerCase().replace(/\s+/g, "-")}-${lineIndex}`, text, onEnd);
+}
+
+function sceneClipId(body: BridgeBody, sceneIndex: number, turnIndex: number): string {
+  return `narration-${body.toLowerCase()}-scene${sceneIndex}-turn${turnIndex}`;
+}
+
+export type PlaySceneHooks = {
+  isCancelled: () => boolean;
+  onTurn: (turn: Turn, turnIndex: number) => void;
+  onTurnEnd?: (turnIndex: number) => void;
+};
+
+// Shared by Ambient's step() and Explore's click handling (see CosmicAtlas/SolarSystem) — the
+// trigger paths differ (auto-tour arrival vs. a kid's click) and each owns its own cancellation
+// check, but the turn-by-turn sequencing is identical either way: play a turn, run the caller's
+// hooks (duck the drone, show the portrait — whatever that trigger path needs), wait, advance.
+export function playScene(body: BridgeBody, sceneIndex: number, scene: Scene, hooks: PlaySceneHooks, onDone: () => void): () => void {
+  let stopCurrent: (() => void) | null = null;
+  let timer: number | null = null;
+  let stopped = false;
+
+  const advance = (turnIndex: number) => {
+    if (stopped || hooks.isCancelled()) return;
+    if (turnIndex === scene.turns.length) { onDone(); return; }
+    const turn = scene.turns[turnIndex];
+    hooks.onTurn(turn, turnIndex);
+    stopCurrent = playClip(sceneClipId(body, sceneIndex, turnIndex), turn.text, () => {
+      if (stopped || hooks.isCancelled()) return;
+      hooks.onTurnEnd?.(turnIndex);
+      const pause = turnIndex === scene.turns.length - 1 ? PAUSE_AFTER_LINE_MS : INTRA_TURN_PAUSE_MS;
+      timer = window.setTimeout(() => { timer = null; advance(turnIndex + 1); }, pause);
+    });
+  };
+  advance(0);
+
+  return () => {
+    stopped = true;
+    if (timer !== null) { window.clearTimeout(timer); timer = null; }
+    stopCurrent?.();
   };
 }
 

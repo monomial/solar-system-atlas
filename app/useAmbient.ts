@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { AMBIENT_FINALE, AMBIENT_TOUR, captionFor, createDrone, finaleCaptionFor, outernessFor, PAUSE_AFTER_LINE_MS, speakLine } from "./ambient";
-import type { AmbientKey, Caption, Drone } from "./ambient";
+import { AMBIENT_FINALE, AMBIENT_TOUR, captionFor, createDrone, finaleCaptionFor, outernessFor, PAUSE_AFTER_LINE_MS, playScene, ShuffleBag, speakLine } from "./ambient";
+import type { BridgeCaption, Caption, Drone } from "./ambient";
 import { NARRATION } from "./bodies";
 import type { BodyName, SmallBodyCategory } from "./bodies";
+import { BRIDGE_SCENES, isBridgeBody } from "./bridgeScenes";
 
 // The solar scene apiRef, shared upward so the persistent ambient orchestrator can drive it.
 export type AmbientApi = {
@@ -18,45 +19,16 @@ export type AmbientApi = {
 
 type Phase = "off" | "gate" | "playing";
 
-// A shuffle bag per body: hand out every fact once, in random order, before any repeats, then
-// reshuffle. Better than picking purely at random each time — pure random can replay one fact
-// while another goes unheard for ages, and for a child you want him to eventually hear them all.
-// Also cheaper on the ear: no fact lands twice in a row, even across a reshuffle.
-class ShuffleBag {
-  private bags = new Map<AmbientKey, number[]>();
-  private last = new Map<AmbientKey, number>();
-
-  next(name: AmbientKey): number {
-    const count = NARRATION[name]?.length ?? 1;
-    if (count <= 1) return 0;
-
-    let bag = this.bags.get(name);
-    if (!bag || bag.length === 0) {
-      bag = [...Array(count).keys()];
-      for (let i = bag.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [bag[i], bag[j]] = [bag[j], bag[i]];
-      }
-      // Don't let the reshuffle repeat the fact we just finished on.
-      const last = this.last.get(name);
-      if (last !== undefined && bag[0] === last && bag.length > 1) [bag[0], bag[1]] = [bag[1], bag[0]];
-      this.bags.set(name, bag);
-    }
-
-    const index = bag.shift()!;
-    this.last.set(name, index);
-    return index;
-  }
-}
-
 /** Drives the outward auto-tour: fly to a world, arrive, speak, hold, advance. Everything the
  *  loop owns is cancellable, because the user can leave at any moment. */
-export function useAmbient({solarApi,navigate}:{solarApi:()=>AmbientApi|null;navigate:(mode:"galaxy"|"local"|"universe"|"solar")=>void}) {
+export function useAmbient({solarApi,navigate,starbotsMode}:{solarApi:()=>AmbientApi|null;navigate:(mode:"galaxy"|"local"|"universe"|"solar")=>void;starbotsMode:boolean}) {
   const [phase, setPhase] = useState<Phase>("off");
   const [caption, setCaption] = useState<Caption | null>(null);
+  const [bridgeCaption, setBridgeCaption] = useState<BridgeCaption | null>(null);
 
   const drone = useRef<Drone | null>(null);
   const bag = useRef(new ShuffleBag());
+  const sceneBag = useRef(new ShuffleBag());
   const stopSpeaking = useRef<(() => void) | null>(null);
   const timer = useRef<number | null>(null);
   // A token invalidated on every exit, so an async arrival from an abandoned run cannot resurrect
@@ -91,7 +63,7 @@ export function useAmbient({solarApi,navigate}:{solarApi:()=>AmbientApi|null;nav
       timer.current=window.setTimeout(()=>{
         timer.current=null;
         if(token!==run.current)return;
-        const lineIndex=bag.current.next(beat.narrationKey),card=finaleCaptionFor(beat,lineIndex);
+        const lineIndex=bag.current.next(beat.narrationKey,NARRATION[beat.narrationKey]?.length??1),card=finaleCaptionFor(beat,lineIndex);
         setCaption(card);
         drone.current?.setDucked(true);
         stopSpeaking.current=speakLine(beat.narrationKey,lineIndex,card.line,()=>{
@@ -114,12 +86,33 @@ export function useAmbient({solarApi,navigate}:{solarApi:()=>AmbientApi|null;nav
 
     const name = AMBIENT_TOUR[index % AMBIENT_TOUR.length];
     setCaption(null); // the card fades out for the flight, and returns on arrival with the voice
+    setBridgeCaption(null);
     drone.current?.setOuterness(outernessFor(name));
 
     apiHandle.flyTo(name, () => {
       if (token !== run.current) return; // arrived after the user left — drop it
 
-      const lineIndex = bag.current.next(name);
+      const advanceTour = () => { if(index===AMBIENT_TOUR.length-1)runFinale(token);else stepRef.current(index+1,token); };
+
+      if (starbotsMode && isBridgeBody(name)) {
+        const scenes = BRIDGE_SCENES[name];
+        const sceneIndex = sceneBag.current.next(name, scenes.length);
+        const scene = scenes[sceneIndex];
+        stopSpeaking.current = playScene(name, sceneIndex, scene, {
+          isCancelled: () => token !== run.current,
+          onTurn: (turn, turnIndex) => {
+            if (turnIndex === 0) drone.current?.setDucked(true);
+            setBridgeCaption({ body: name, speaker: turn.speaker, text: turn.text, turnIndex, totalTurns: scene.turns.length });
+          },
+          onTurnEnd: (turnIndex) => { if (turnIndex === scene.turns.length - 1) drone.current?.setDucked(false); },
+        }, () => {
+          if (token !== run.current) return;
+          advanceTour();
+        });
+        return;
+      }
+
+      const lineIndex = bag.current.next(name,NARRATION[name]?.length??1);
 
       const card = captionFor(name, lineIndex);
       setCaption(card);
@@ -131,11 +124,11 @@ export function useAmbient({solarApi,navigate}:{solarApi:()=>AmbientApi|null;nav
         timer.current = window.setTimeout(() => {
           timer.current=null;
           if(token!==run.current)return;
-          if(index===AMBIENT_TOUR.length-1)runFinale(token);else stepRef.current(index+1,token);
+          advanceTour();
         }, PAUSE_AFTER_LINE_MS);
       });
     });
-  }, [runFinale, solarApi]);
+  }, [runFinale, solarApi, starbotsMode]);
   useEffect(() => { stepRef.current = step; }, [step]);
 
   const enter = useCallback(() => setPhase("gate"), []);
@@ -161,6 +154,7 @@ export function useAmbient({solarApi,navigate}:{solarApi:()=>AmbientApi|null;nav
     drone.current = null;
     solarApi()?.setAmbient(false);
     setCaption(null);
+    setBridgeCaption(null);
     setPhase("off");
     navigateRef.current("solar");
     timer.current=window.setTimeout(()=>{timer.current=null;if(token!==run.current)return;navigateRef.current("solar");},1100);
@@ -182,7 +176,7 @@ export function useAmbient({solarApi,navigate}:{solarApi:()=>AmbientApi|null;nav
     drone.current?.stop();
   }, []);
 
-  return { phase, caption, enter, begin, exit };
+  return { phase, caption, bridgeCaption, enter, begin, exit };
 }
 
 export type AmbientState = ReturnType<typeof useAmbient>;
